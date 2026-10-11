@@ -1,0 +1,213 @@
+# follow-ups
+
+[English](README.md)
+
+Claude Code のプラグインである。Claude は、各セッションが本人に待っていること（質問、本人の作業、
+未検証の点、次の手順）を `pending_items_set` ツールで報告する。プラグインはそれを各セッションの
+未マージの PR とあわせて、全セッション分、Pane とプロンプト上の1行の帯に表示する。
+
+版は 0.1.0 である。
+
+## インストール
+
+ターミナルの Claude Code で次を実行する。
+
+```
+/plugin install follow-ups --marketplace hota911/claude-follow-ups
+```
+
+マーケットプレイス（`github:hota911/claude-follow-ups`）の追加を尋ねられたら `y` で答え、スコープを
+選ぶ。このコマンドはターミナル専用であり、Claude Desktop アプリの Code タブでは使えない。
+ターミナルからユーザースコープでインストールしたプラグインは、ローカルの Desktop セッションでも
+読み込まれる。
+
+## 使い方
+
+### ツール
+
+プラグインはツール `pending_items_set`（正式名 `mcp__follow-ups__pending_items_set`）を登録し、
+いつ呼ぶかを Claude に伝える短い節をシステムプロンプトに加える。呼び出しのたびに、セッションの
+一覧全体を置き換える。
+
+- `title`（必須）: セッションがしていることの短い名前。
+- `items`（必須）: 各項目は `id`、`kind`、`text` と、任意の `owner`、`url`、`options` を持つ。
+- `activity`: セッションがいましていることの1行。Running の横に表示する。
+
+項目の種類は次のとおりである。
+
+| 種類 | 意味 |
+| --- | --- |
+| `question` | 本人が答える必要があり、いま答えられること |
+| `user_action` | 本人がいますぐできること |
+| `unverified` | 検証していない点、または作業の制限 |
+| `next_step` | このターンのあとに残る手順。`owner` で誰がするかを示す |
+
+`question` には `options` を付けられる。2〜4個の互いに異なる1行の回答で、各40文字以内である。
+ツールを呼べるのはメインのセッションだけであり、サブエージェントからの呼び出しは拒否する。
+
+### Pane
+
+`/follow-ups` で Pane を開く。このセッションの一覧が空から空でなくなったとき、または項目を持つ
+セッションを再開したときの開始時にも、自動で開く。一度開いたあと、または本人が閉じたあとは、
+一覧が再び空になるまで自動では開かない。
+
+- ビュー: This session（どのセッションもこれで始まる）、By session（セッションごとに1つの枠）、
+  By kind（全セッションの項目を Questions for you、Your actions、Open PRs、Next steps、
+  Unverified / limits に分ける）。
+- 各セッションの見出しに状態を表示する。Running、Background task running（メインループが回答した
+  あとも、それが起動したサブエージェントが動いている）、Needs permission、Waiting for you、
+  Interrupted、Error、Ended のいずれかである。Ended 以外で 24 時間より古い状態は `stale?` と表示する。
+  クラッシュしたセッションは Ended を記録しないためである。Running と Background task running の
+  あいだは、状態のあとに `activity` の行を表示する。
+- Refresh は再読み込みし、全セッションの PR を確認し直す。`☐ Show done (N)` / `☑ Show done (N)` は
+  完了した項目の表示を切り替える。
+
+行のボタンは次のとおりである。
+
+| ボタン | 動作 |
+| --- | --- |
+| ✓ | 項目または PR を完了にする。完了した項目は 7 日間残り、Show done で表示できる |
+| ↺ | ✓ を取り消す（完了した行に出る） |
+| ⧉ | 項目の最初のバッククォートのコード部分を、なければ全文をクリップボードにコピーし、`Copied` と表示する |
+| ↩ | 種類を先頭に付けた引用（`> Question: ...`）を、下書きを残したまま、このセッションの入力欄に入れる |
+| 選択肢ボタン | このセッションの `options` 付きの質問に出る。引用した質問と選んだ選択肢を、本人のプロンプトとしてすぐ送る（ターンの実行中ならその後）。質問は Claude が消すまで一覧に残る |
+| ↗ | 別のセッションを Claude Desktop アプリで開く（`claude://claude.ai/epitaxy/<id>`）。By session ではセッションの見出しに、By kind では各行に出る |
+| Resume | CLI から始めた別のセッション（Desktop の id がない）に出る。`/resume <sessionId>` を入力欄に入れ、送るのは本人である。入力欄に下書きがあるときは拒否する |
+
+### 帯
+
+プロンプトの上の1行で、5種類の件数を 0 も含めて決まった順に並べる:
+`Questions 0 · Your actions 1 · PRs 0 · Next 0 · Unverified 0`。既定ではこのセッションの件数を数え、
+All sessions / This session で範囲を切り替える。このセッションに何もなく、ほかのセッションにある
+ときは `This session: nothing pending · Others N` と表示する。Open は Pane を開き、閉じるボタン
+（ターミナルでは ×、Desktop では Close）は、新しい質問か本人の作業が現れるか `/follow-ups` を
+実行するまで帯を隠す。件数がすべて 0 のときと、アンケートの表示中は描かない。
+
+### 未マージの PR
+
+PR は Claude が報告するのではなく、プラグインが追跡する。セッションの PR は、作業ディレクトリの
+ブランチの PR（開始時と各ターンのあとに `gh pr view`）と、`gh pr create` を実行した Bash コマンドが
+出力した PR の URL（`gh pr view <url>` で確認）である。各ターンのあとにセッションの PR を確認し直し、
+マージ済みまたはクローズ済みの PR を外す。
+
+## 仕組み
+
+各セッションは JSON ファイルを1つ持つ（`~/.claude/follow-ups/sessions/<sessionId>.json`）。どの
+セッションも全ファイルを読むため、どの Pane にも全セッションが出る。以下はすべて
+`hooks/register.tsx` にある。
+
+| いつ | 何をするか | ファイル | モデルに見えるもの |
+| --- | --- | --- | --- |
+| セッション開始（`session.start`） | `/follow-ups` とツールを登録する。状態を idle として記録し、全セッションファイルを読み込み、ブランチの PR を調べ、保存済みの PR を確認し直す。再読み込みのタイマーを始める | `sessions/*.json` を読む。自分のファイルに書く（新規作成は PR が見つかったときだけ） | ツールの説明とスキーマ |
+| 30 秒ごと | 全セッションファイルを読み込み直し、アーカイブ済みセッションの掃除（下記）を行う。書き込みのたび、ビューの切り替え、Refresh のあとにも読み込み直す | `sessions/*.json` を読む | なし |
+| プロンプトの組み立て（`prompt.compose`） | 固定文のシステムプロンプトの節を加える。いつツールを呼ぶか、種類、セッションの言語で書くことである。項目を含まないため、ターンごとに変わらない。チームメイトには加えない | なし | その節（毎ターン） |
+| プロンプトの送信（`prompt.submit`） | ファイルの `notify` にある id を取り出して空にする | 自分のファイルを読み書きする | プロンプトの横の文脈1行。例: `[Follow-ups] The user marked these done in the pane: q1 (What is the budget?)`。トランスクリプトには出ない |
+| ターン開始（`turn.start`） | 状態を Running にし、前のターンの `activity` を消す | 自分のファイル | なし |
+| モデルが `pending_items_set` を呼ぶ | タイトル、項目、activity を置き換える。本人が完了にした id は落とす。このセッションの一覧が空だったら Pane を開く | 自分のファイルに書く（なければ作る） | `Stored N item(s) for "<title>".` と、隠したままの id（あれば） |
+| Bash の `gh pr create` | 出力にある PR の URL を調べて `prs` に加える。Bash の結果は変えない | 自分のファイル | なし |
+| 権限の確認（`tool.check` の判定が ask） | 状態を Needs permission にし、その呼び出しが終わったら Running に戻す | 自分のファイル | なし |
+| ターン終了（`turn.complete`） | 状態を Waiting for you、Interrupted、Error、または起動したサブエージェントが動いていれば Background task running にする。続いてブランチの PR を調べ、PR を確認し直す。そのサブエージェントの最後の1つが終わると Waiting for you にする | 自分のファイル | なし |
+| セッション終了（`session.end`） | 状態を Ended にする | 自分のファイル | なし |
+| ✓ / ↺ | 項目を `items` と `done` のあいだで移す（id は `dismissed` に入る）。PR ではなく項目への ✓ は、id を `notify` にも加える | 項目を持つセッションのファイル（別のセッションのこともある） | そのセッションのモデルが、次のプロンプト送信時に受け取る |
+| ↩ | 入力欄を読み、下書きと引用で入れ直す | なし | 本人が送ったものだけ |
+| 選択肢ボタン | 引用した質問と選択肢を本人のプロンプトとして送る | なし | そのプロンプト |
+| ⧉ | クリップボードにコピーする | なし | なし |
+| ↗ / Resume | `open claude://claude.ai/epitaxy/<hostSessionId>` を実行する / `/resume <sessionId>` を入力欄に入れる | なし | なし |
+| アーカイブ済みセッションの掃除（読み込みのたび） | Desktop の id を持つ別のセッションのファイルについて、Desktop アプリの記録を読み、`isArchived: true` ならそのセッションファイルを `rm -f` で消す。自分のファイルは消さない | `~/Library/Application Support/Claude/claude-code-sessions/<account>/<org>/<hostSessionId>.json` を読む。`sessions/<id>.json` を消す | なし |
+
+Show done の切り替えと帯を閉じた状態は、プラグインのストア（`$.store`）に保存する。
+
+```mermaid
+sequenceDiagram
+    participant M as モデル
+    participant T as pending_items_set
+    participant F as sessions/<id>.json
+    participant P as Pane / 帯
+    participant U as 本人
+    participant B as 入力欄
+    M->>T: 項目の一覧全体
+    T->>F: 項目を書く
+    T-->>M: Stored N item(s)
+    F->>P: 読み込み（書き込みのたび、30 秒ごと）
+    P->>U: 行と件数
+    U->>P: ✓
+    P->>F: done へ移し、id を notify に加える
+    U->>P: ↩ または選択肢ボタン
+    P->>B: 引用（↩）/ 引用と選択肢を送信
+    B->>M: プロンプトと「[Follow-ups] ... marked done」の文脈
+```
+
+## 既知の制限
+
+- セッションファイルは後から書いたほうが勝つ。2つのセッションが同じファイルを同時に書くと
+  （そのセッションが一覧を更新しているあいだに ✓ を押すなど）、片方の書き込みが失われることがある。
+- Needs permission は、メインループの呼び出しの判定が `ask` のときに記録する。auto モードでは
+  ダイアログではなく分類器に回るため、短時間だけ表示されることがある。Running に戻るのは、
+  許可されたときではなく、その呼び出しが終わったときである。
+- `gh pr create` から PR を記録できるのは、URL がコマンドの出力にあるときだけである。バックグラウンドで
+  実行したコマンドや、出力をリダイレクトしたコマンドからは記録しない。作業ディレクトリのブランチの
+  PR は、ブランチの照会で見つかる。
+- ↗ は CLI のプロセスから macOS の `open` を実行するため、それが使えない環境では動かない。
+- Desktop では、フォーカスのない Pane への最初のクリックはフォーカスするだけで、次のクリックで
+  押せる。フォーカスを得たあとは、押してもフォーカスを保つ。上端の行に `● Focused` または
+  `Click to focus`（ターミナルでは `Click or ctrl+x tab to focus`）と表示する。
+- Desktop では Pane の文字を選択できないため、項目の文字を取り出すには ⧉ を使う。コピーするのは
+  コード部分1つまでである。
+
+## 依存
+
+- Claude Code の function hooks のプラグイン API（`hooks/hooks.json` が `hooks/register.tsx` を読み込む）。
+- アーカイブ済みセッションの掃除に使う Claude Desktop アプリのセッション記録:
+  `~/Library/Application Support/Claude/claude-code-sessions/<account>/<org>/<hostSessionId>.json` の
+  `isArchived`。これはアプリ独自の非公開の形式である。記録がない、解析できない、`isArchived: true` が
+  ない、のいずれかならファイルを残すため、形式が変わっても掃除が止まるだけである。
+- PR の追跡に使う `gh` CLI。照会に失敗すると、エラーの最初の行を Pane に表示する。
+- Desktop のセッション id は環境変数 `CLAUDE_CODE_HOST_SESSION_ID` から得る。
+
+## 開発
+
+エンジンは `$` を同じファイルで宣言した関数の中までしか追わない。このため、`$` を呼ぶ関数と
+フックはすべて `hooks/register.tsx` に置き、ほかのモジュールには `$` を呼ばない処理だけを置く。
+
+| ファイル | 役割 |
+| --- | --- |
+| `hooks/register.tsx` | フック、状態の atom、`$` を呼ぶすべての関数 |
+| `hooks/render.tsx` | Pane と帯の描画 |
+| `hooks/rows.ts` | 行のモデル（並び順、グループ、✓ 後のフォーカス先、帯が記録する id） |
+| `hooks/items.ts` | ツール、✓、↺、完了の通知がセッションファイルをどう変えるか |
+| `hooks/prs.ts` | `gh pr view` の引数と結果の解釈、PR の確認結果の反映 |
+| `hooks/state.ts` | ターンの終わり方と状態の対応 |
+| `hooks/store.ts` | セッションファイルの場所、読み書きを直列にするキュー |
+| `hooks/actions.ts` | ↩、選択肢ボタン、⧉、↗ が作るもの |
+| `hooks/common.ts` | プラグイン、Pane、ツールの名前 |
+| `hooks/parse.ts` | ツールの入力とファイルの解析 |
+| `hooks/prompts.ts` | モデルが読むすべての文言 |
+
+テストは `tests/`（`render`、`state`、`store`、`prs`）にあり、共通の準備は `tests/world.ts` に置く。
+リポジトリのルートで次を実行する。
+
+```
+claude plugin test .
+claude plugin validate .
+```
+
+`claude plugin validate .` は、マーケットプレイスのファイル、プラグインのマニフェスト、フックを検証する。
+
+### 開発用コピーで試す
+
+変更したコピーをインストール済みの版と並べて動かすには、コピーの名前を `follow-ups-dev` に変え、
+そのセッションの dev-mods フォルダ `~/.claude/dev-mods/<session>/follow-ups-dev/` に置く。名前を
+変えないと、インストール済みの版が Pane を描く。次の箇所の `follow-ups` を `follow-ups-dev` に置き換える。
+
+- `.claude-plugin/plugin.json` の `name`（フォルダ名と一致させる）。
+- `hooks/common.ts` の `PLUGIN` と `PANE`（`PANE_TITLE` は `Follow-ups (dev)` にする）。
+- `hooks/register.tsx` の atom の `plugin`、コマンド名、Pane の matcher の `requestId`、ツール名
+  `mcp__follow-ups__pending_items_set` を含む matcher。
+- `types/index.d.ts` のモジュール拡張のキー。
+
+セッションファイルの場所は変えない。コピーが同じファイルを読み書きするためである。置いたあとは
+`claude plugin validate <コピーのフォルダ>` で検証する。
+
+## ライセンス
+
+[MIT](LICENSE)
