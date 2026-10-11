@@ -502,11 +502,18 @@ async function replyTo($: Engine, item: PendingItem): Promise<void> {
  * the person's own prompt. Done first, so the buttons go at once and a second press cannot queue
  * the answer again. The engine runs the submit once the session is idle, so the step waits for
  * the turn running now, if any; it runs detached from every hook, so no hook awaits its own
- * submit. A failed submit puts the question back before the error surfaces.
+ * submit. A failed submit puts the question back before the error surfaces. Only the press that
+ * finds the question still listed sends: two presses before the redraw still send one answer.
  */
 async function answerWith($: Engine, item: PendingItem, option: string, act: string): Promise<void> {
   const sessionId = await $.session.id()
-  await changeSession($, sessionId, act, (file, now) => answered(file, item.id, now))
+  let claimed = false
+  await changeSession($, sessionId, act, (file, now) => {
+    if (!file.items.some(candidate => candidate.id === item.id)) return file
+    claimed = true
+    return answered(file, item.id, now)
+  })
+  if (!claimed) return
   try {
     await $.prompt.submit({ text: answerOf(item, option), asUser: true })
   } catch (err) {

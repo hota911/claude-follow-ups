@@ -248,6 +248,19 @@ describe('reply', () => {
     await pane.unmount()
   })
 
+  test('two presses before the redraw send one answer', async ($, on) => {
+    const w = world(on, NO_PR, [fileOf(SELF, { items: [{ id: 'q1', kind: 'question', text: 'Merge now?', options: ['Yes', 'No'] }] })])
+    await start($, w)
+    const pane = await mountPane($)
+    const first = pane.press({ key: `answer:${SELF}:q1:0` })
+    const second = pane.press({ key: `answer:${SELF}:q1:1` }).catch(() => undefined)
+    await Promise.all([first, second])
+    await w.clock.settle()
+    expect(w.submitted).toEqual(['> Question: Merge now?\n\nYes'])
+    expect(w.file(SELF)?.done.map(entry => entry.id)).toEqual(['q1'])
+    await pane.unmount()
+  })
+
   test('a failed send puts the question back and says why', async ($, on) => {
     const w = world(on, NO_PR, [fileOf(SELF, { items: [{ id: 'q1', kind: 'question', text: 'Merge now?', options: ['Yes', 'No'] }] })])
     await start($, w)
