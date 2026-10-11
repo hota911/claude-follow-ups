@@ -57,7 +57,8 @@ export function composeText(tool: string): string {
   return [
     '# Follow-ups for the user',
     `In the Follow-ups pane, the user tracks, across parallel sessions, what each session is waiting on them for, through the ${tool} tool.`,
-    'Before ending a turn, call it with the full current list whenever a question, user_action, unverified point or next_step exists or changed.',
+    'Call it with the full current list whenever a question, user_action, unverified point or next_step exists or changed, before you write your final reply of the turn, so the reply is written once.',
+    'If you call it after you already wrote that reply, end the turn after the call: do not restate or summarize the reply again.',
     KINDS_GUIDE,
     'Remove items that are resolved and keep ids stable.',
     'Write the title and item text in the language the user is using in this session, short and self-contained (readable without this conversation).',
