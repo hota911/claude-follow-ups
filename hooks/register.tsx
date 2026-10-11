@@ -453,7 +453,7 @@ async function setItems($: Engine, input: SetInput): Promise<SetOutcome> {
 
 /**
  * Takes this session's pending done notice: the items the person marked done in a pane (any
- * session's) since the model was last told, as one line, and clears it from the file.
+ * session's) since the model was last told, and clears it from the file.
  * Undefined when there is none, so the prompt goes in unchanged.
  */
 async function takeDoneNotice($: Engine): Promise<string | undefined> {
