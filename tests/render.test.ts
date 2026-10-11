@@ -27,7 +27,7 @@ describe('Done', () => {
       { id: 'q1', kind: 'question', text: 'What is the budget?' },
       { id: 'u1', kind: 'user_action', text: 'Send the invoice' },
     ] })
-    expect(ran.result).toBe('Stored 1 item(s) for "Research". The user already marked these ids done, so they stay hidden: q1. Use a new id only for genuinely new work.')
+    expect(ran.result).toBe('Stored 1 item(s) for "Research". The user already marked these ids done, so they stay hidden: q1. Use a new id only for genuinely new work.\nCurrent: u1 (user_action).')
     expect(w.file(SELF)?.items.map(i => i.id)).toEqual(['u1'])
   })
 

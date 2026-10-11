@@ -1,35 +1,53 @@
 // The items of a session file: what the tool's write, ✓, ↺, a choice and the done notice change in it.
 // Pure: register.tsx reads and writes the file around these.
-import type { PendingItemsDone, PendingItemsSessionFile, PendingItemsSessionState } from '../types'
-import { prDismissId, type SetInput, uniqueByUrl } from './parse'
-import { doneNotice } from './prompts'
-import type { OwnBase } from './store'
+import type { PendingItem, PendingItemsDone, PendingItemsSessionFile, PendingItemsSessionState } from '../types'
+import { LIMITS, prDismissId, type SetInput, uniqueByUrl } from './parse'
+import { doneNotice, INPUT_ERRORS } from './prompts'
+import { blankFile, type OwnBase } from './store'
 
-export type SetOutcome = { file: PendingItemsSessionFile; hidden: string[] }
+/** The written file, the sent ids kept hidden as done, and the removed ids that were not in the list. */
+export type SetOutcome = { file: PendingItemsSessionFile; hidden: string[]; missing: string[] }
 
 /**
- * The tool's write: replaces the session's items and activity, keeping dismissed ids hidden.
- * `stored` is the file as read, `own` its fresh fields, `state` this session's recorded state.
+ * The tool's write, keeping dismissed ids hidden: `items` replaces the session's list, `changes`
+ * replaces or appends its upserts by id and drops its removes. `stored` is the file as read
+ * (undefined when there is none), `own` its fresh fields, `state` this session's recorded state.
+ * Refused when `changes` has no title and there is no file, or the list would exceed LIMITS.items.
  */
 export function applySet(
-  stored: PendingItemsSessionFile,
-  { title, items, activity }: SetInput,
+  stored: PendingItemsSessionFile | undefined,
+  input: SetInput,
   own: OwnBase,
   state: { state: PendingItemsSessionState; stateAt: number } | null,
   now: number,
-): SetOutcome {
-  const { activity: _activity, ...base } = stored
-  const hidden = items.filter(item => base.dismissed.includes(item.id)).map(item => item.id)
+): SetOutcome | { error: string } {
+  if ('changes' in input && input.title === undefined && stored === undefined) return { error: INPUT_ERRORS.changesWithoutFile }
+  const { activity: storedActivity, ...base } = stored ?? blankFile(own.id, own.cwd, own.branch, now)
+  const sent = 'items' in input ? input.items : input.changes.upsert
+  const hidden = sent.filter(item => base.dismissed.includes(item.id)).map(item => item.id)
+  const shown = sent.filter(item => !base.dismissed.includes(item.id))
+  const items = 'items' in input ? shown : withChanges(base.items, shown, input.changes.remove)
+  if (items.length > LIMITS.items) return { error: INPUT_ERRORS.listTooLong(items.length, LIMITS.items) }
+  const missing = 'items' in input ? [] : input.changes.remove.filter(id => !base.items.some(item => item.id === id))
+  const activity = 'items' in input ? input.activity : input.activity ?? storedActivity
   const file: PendingItemsSessionFile = {
     ...base,
-    title,
-    ...(activity !== undefined ? { activity } : {}),
+    title: input.title ?? base.title,
+    ...(activity !== undefined && activity !== '' ? { activity } : {}),
     ...own.fresh,
-    items: items.filter(item => !base.dismissed.includes(item.id)),
+    items,
     ...(state ?? {}),
     updatedAt: now,
   }
-  return { file, hidden }
+  return { file, hidden, missing }
+}
+
+/** The list with `upsert` replacing items of the same id in place, the rest appended, and `remove` dropped. */
+function withChanges(items: PendingItem[], upsert: PendingItem[], remove: string[]): PendingItem[] {
+  const kept = items
+    .filter(item => !remove.includes(item.id))
+    .map(item => upsert.find(next => next.id === item.id) ?? item)
+  return [...kept, ...upsert.filter(next => !items.some(item => item.id === next.id))]
 }
 
 /** The Done button: hides one item (or one PR) of a session's file and keeps a copy for Undo. */
