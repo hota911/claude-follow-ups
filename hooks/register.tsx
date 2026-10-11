@@ -5,7 +5,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderSurface } from 'claude-code'
 
 import type { PendingItem, PendingItemsLoad, PendingItemsPr, PendingItemsSessionFile, PendingItemsSessionState, PendingItemsView } from '../types'
-import { answerOf, copyTextOf, holdsFill, hostLinkOf, quoteOf, replyFill, withPromptBox } from './actions'
+import { answerOf, copyTextOf, holdsFill, hostLinkOf, quoteOf, repliedIds, replyFill, withPromptBox } from './actions'
 import { BAND_CLOSED_KEY, errorLine, PANE, PANE_TITLE, PLUGIN, SHOW_DONE_KEY, TOOL, TOOL_FULL } from './common'
 import { answered, applySet, dismissed, doneNoticeOf, type SetOutcome, undone, withNotify } from './items'
 import {
@@ -501,6 +501,30 @@ async function takeDoneNotice($: Engine): Promise<string | undefined> {
   })
 }
 
+/**
+ * Marks done the questions in this session's file that a sent prompt quotes as ↩ put them (see
+ * repliedIds), as a choice does: with no done notice, since the reply tells the model. Checked
+ * against the loaded list first, so a prompt that quotes none of them never touches the file;
+ * then read again inside withFile, so a question already done is left alone.
+ */
+async function markReplied($: Engine, prompt: string): Promise<void> {
+  const self = await read($, selfId)
+  const state = await read($, files)
+  const own = state.status === 'ok' ? state.files.find(file => file.sessionId === self) : undefined
+  if (self === null || own === undefined || repliedIds(prompt, own.items).length === 0) return
+  const path = await fileOf($, self)
+  const now = await $.clock.now()
+  const marked = await withFile(async () => {
+    const file = await readSession($, path)
+    if (file === undefined) return false
+    const ids = repliedIds(prompt, file.items)
+    if (ids.length === 0) return false
+    await saveFile($, path, ids.reduce((next, id) => answered(next, id, now), file))
+    return true
+  })
+  if (marked) await loadFiles($)
+}
+
 // --- Row buttons ---------------------------------------------------------------------------
 
 /**
@@ -508,7 +532,8 @@ async function takeDoneNotice($: Engine): Promise<string | undefined> {
  * draft. It reads the draft and fills the whole box once (see replyFill for why it never appends),
  * on the prompt box queue, with no other await between the read and the fill. Text typed during
  * that one round trip is still overwritten; the check after the fill reports a box that does not
- * hold what was filled.
+ * hold what was filled. Sending a question's quote unedited marks the question done (see the
+ * prompt.submit hook).
  */
 async function replyTo($: Engine, item: PendingItem): Promise<void> {
   await withPromptBox(async () => {
@@ -643,8 +668,11 @@ export const register: Register = on => {
   }).catch(($, e, next) => next(e))
 
   // Tells this session's model which of its items the person marked done, as context beside the
-  // prompt (never shown in it). A failure lets the prompt in unchanged.
+  // prompt (never shown in it). A failure lets the prompt in unchanged. Also marks done this
+  // session's questions the prompt replies to with ↩'s quote (see markReplied): a background
+  // step, so the prompt never waits on it and its failure shows in the pane.
   on('prompt.submit', async ($, e, next) => {
+    runStep($, () => markReplied($, e.text))
     const notice = await takeDoneNotice($)
     return next(notice === undefined ? e : { ...e, context: [...(e.context ?? []), notice] })
   }).catch(($, e, next) => next(e))

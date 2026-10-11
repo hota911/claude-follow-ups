@@ -1,5 +1,5 @@
 // The pane and the band: ✓/↺, reply, focus, copy, the views, the band.
-import { describe, expect, test } from 'claude-code/testing'
+import { describe, expect, test, type Engine } from 'claude-code/testing'
 
 import type { PendingItemsSessionFile } from '../types'
 import { focusAfter, type Shown } from '../hooks/rows'
@@ -391,6 +391,94 @@ describe('reply', () => {
     await w.clock.settle()
     expect(w.prompt.draft).toBe('Half-written note')
     expect(await pane.find({ type: 'Text', text: /Failed: the prompt box has a draft/ })).toBeDefined()
+    await pane.unmount()
+  })
+})
+
+describe('sending a reply', () => {
+  /** The person pressing Enter at the prompt. */
+  const submit = ($: Engine, text: string) => $.prompt.submit({ text, wait: false, origin: { kind: 'composer' } })
+
+  test('↩ on a question, then sending the box, marks it done with no done notice; Undo puts it back', async ($, on) => {
+    const w = world(on, NO_PR, [fileOf(SELF, { items: [
+      { id: 'q1', kind: 'question', text: 'What is the budget?\nIn euros' },
+      { id: 'u1', kind: 'user_action', text: 'Send the invoice' },
+    ] })])
+    await start($, w)
+    const pane = await mountPane($)
+    await pane.press({ key: `reply:${SELF}:q1` })
+    await w.clock.settle()
+    const sent = await submit($, `${w.prompt.draft}About 5000`)
+    await w.clock.settle()
+    expect(sent.context ?? []).toEqual([])
+    expect(w.file(SELF)?.items.map(item => item.id)).toEqual(['u1'])
+    expect(w.file(SELF)?.done.map(entry => entry.id)).toEqual(['q1'])
+    expect(w.file(SELF)?.notify).toBeUndefined()
+    expect((await submit($, 'Next task')).context ?? []).toEqual([])
+
+    await pane.press({ key: 'toggle-done' })
+    await w.clock.settle()
+    expect(await pane.find({ type: 'Text', text: 'What is the budget?\nIn euros' })).toMatchObject({ props: { strikethrough: true } })
+    await pane.press({ key: `act:${SELF}:q1` })
+    await w.clock.settle()
+    expect(w.file(SELF)?.items.map(item => item.id)).toEqual(['u1', 'q1'])
+    expect(await pane.find({ type: 'Text', text: /^Failed:/ })).toBeUndefined()
+    await pane.unmount()
+  })
+
+  test('several quoted questions in one prompt are all marked done', async ($, on) => {
+    const w = world(on, NO_PR, [fileOf(SELF, { items: [
+      { id: 'q1', kind: 'question', text: 'What is the budget?' },
+      { id: 'q2', kind: 'question', text: 'Which date?' },
+    ] })])
+    await start($, w)
+    await submit($, 'Draft first\n> Question: What is the budget?\n\n5000\n> Question: Which date?\n\nMonday')
+    await w.clock.settle()
+    expect(w.file(SELF)?.items).toEqual([])
+    expect(w.file(SELF)?.done.map(entry => entry.id)).toEqual(['q1', 'q2'])
+  })
+
+  test('a quoted user action, or an edited quote, leaves the item listed', async ($, on) => {
+    const w = world(on, NO_PR, [fileOf(SELF, { items: [
+      { id: 'q1', kind: 'question', text: 'What is the budget?' },
+      { id: 'u1', kind: 'user_action', text: 'Send the invoice' },
+    ] })])
+    await start($, w)
+    const pane = await mountPane($)
+    await pane.press({ key: `reply:${SELF}:u1` })
+    await w.clock.settle()
+    await submit($, `${w.prompt.draft}Sent`)
+    await submit($, '> Question: What is the total budget?\n\n5000')
+    await submit($, '> Question: What is the budget? And the date?\n\n5000, Monday')
+    await w.clock.settle()
+    expect(w.file(SELF)?.items.map(item => item.id)).toEqual(['q1', 'u1'])
+    expect(w.file(SELF)?.done).toEqual([])
+    await pane.unmount()
+  })
+
+  test('a prompt quoting another session\'s question leaves that session\'s file as it was', async ($, on) => {
+    const w = world(on, NO_PR, [
+      fileOf(SELF, { items: [{ id: 'q1', kind: 'question', text: 'What is the budget?' }] }),
+      fileOf('session-b', { items: [{ id: 'q2', kind: 'question', text: 'Which venue?' }] }),
+    ])
+    await start($, w)
+    const before = w.raw('session-b')
+    await submit($, '> Question: Which venue?\n\nThe hall')
+    await w.clock.settle()
+    expect(w.raw('session-b')).toBe(before)
+    expect(w.file(SELF)?.items.map(item => item.id)).toEqual(['q1'])
+  })
+
+  test('a choice still sends exactly one answer and marks its question done once', async ($, on) => {
+    const w = world(on, NO_PR, [fileOf(SELF, { items: [{ id: 'q1', kind: 'question', text: 'Merge now?', options: ['Yes', 'No'] }] })])
+    await start($, w)
+    const pane = await mountPane($)
+    await pane.press({ key: `answer:${SELF}:q1:0` })
+    await w.clock.settle()
+    expect(w.submitted).toEqual(['> Question: Merge now?\n\nYes'])
+    expect(w.file(SELF)?.done).toEqual([{ id: 'q1', doneAt: NOW + 10, item: { id: 'q1', kind: 'question', text: 'Merge now?', options: ['Yes', 'No'] } }])
+    expect(w.file(SELF)?.notify).toBeUndefined()
+    expect(await pane.find({ type: 'Text', text: /^Failed:/ })).toBeUndefined()
     await pane.unmount()
   })
 })

@@ -88,7 +88,7 @@ Buttons on a row:
 | ✓ | Marks the item or PR done. Done items are kept for 7 days and can be shown with Show done |
 | ↺ | Undoes ✓ (on a done row) |
 | ⧉ | Copies the item's first backtick code span, or its whole text when it has none, and shows `Copied` |
-| ↩ | Quotes the item, led by its kind (`> Question: ...`), into this session's prompt box, keeping your draft |
+| ↩ | Quotes the item, led by its kind (`> Question: ...`), into this session's prompt box, keeping your draft. Sending a question's quote unedited marks that question done (as an option button does), so Show done and ↺ bring it back; other kinds stay listed |
 | Option buttons | On this session's questions with `options`: marks the question done (as ✓, so Show done and ↺ bring it back) and sends the quoted question and the option as your prompt (after the current turn, if one is running). The buttons go with the question, so a second press cannot send the answer again. If the send fails, the question is put back |
 | ↗ | Opens another session in the Claude Desktop app (`claude://claude.ai/epitaxy/<id>`). In By session it sits in the session header, in By kind on each row |
 | Resume | For another session started from the CLI (no Desktop id): puts `/resume <sessionId>` in the prompt box for you to send. Refused while the box holds a draft |
@@ -126,7 +126,7 @@ a list over this session's own such file. Fix or remove the file to recover.
 | Session start (`session.start`) | Registers `/follow-ups` and the tool. Records the state as idle, loads all session files, looks up the branch PR and re-checks the stored PRs. Starts the reload timer | Reads `sessions/*.json`; writes its own file (created only when a PR is found) | The tool's description and schema |
 | Every 30 seconds | Reloads all session files and runs the archived-session cleanup (below). A reload also follows every write, a view switch and Refresh | Reads `sessions/*.json` | Nothing |
 | Prompt compose (`prompt.compose`) | Adds a fixed system prompt section: when to call the tool, the kinds, and to write in the session's language. It holds no items, so it does not change between turns. Skipped for teammates | None | The section, every turn |
-| Prompt submit (`prompt.submit`) | Takes the ids in the file's `notify` list and clears it | Reads and writes its own file | Context beside the prompt: one instruction line, then the items as data in a `<done-items>` block, e.g. `<item id="q1">What is the budget?</item>` (escaped, on one line, cut at 200 characters). It is not shown in the transcript |
+| Prompt submit (`prompt.submit`) | Takes the ids in the file's `notify` list and clears it. Moves each of this session's questions whose ↩ quote the prompt holds unedited, on lines of its own, to `done` without adding it to `notify`; this runs as a background step, so the prompt never waits on it and a failure shows in the pane | Reads and writes its own file | Context beside the prompt: one instruction line, then the items as data in a `<done-items>` block, e.g. `<item id="q1">What is the budget?</item>` (escaped, on one line, cut at 200 characters). It is not shown in the transcript |
 | Turn start (`turn.start`) | State Running; the previous turn's `activity` is removed | Its own file | Nothing |
 | The model calls `pending_items_set` | Replaces the title, items and activity (`items`), or applies `changes` to them. Ids you already marked done are dropped. The pane opens if this session's list was empty | Writes its own file (creating it) | `Stored N item(s) for "<title>".`, plus the ids kept hidden and the removed ids not stored, if any; then `Current: <id> (<kind>), ...` |
 | Bash `gh pr create` | PR URLs in its output are looked up and added to `prs`. The Bash result is unchanged | Its own file | Nothing |
@@ -134,7 +134,7 @@ a list over this session's own such file. Fix or remove the file to recover.
 | Turn end (`turn.complete`) | State Waiting for you, Interrupted, Error, or Background task running while a subagent it started is active. Then the branch PR lookup and the PR re-check. When the last such subagent ends, Waiting for you | Its own file | Nothing |
 | Session end (`session.end`) | State Ended | Its own file | Nothing |
 | ✓ / ↺ | Moves the item between `items` and `done` (with its id in `dismissed`). ✓ on an item, not a PR, also adds its id to `notify` | The owning session's file, which may be another session's | That session's model, at its next prompt submit |
-| ↩ | Reads the prompt box and refills it with the draft and the quote | None | Only what you send |
+| ↩ | Reads the prompt box and refills it with the draft and the quote. Sending a question's quote unedited moves the question to `done` (see Prompt submit) | Its own file, when the quote is sent | Only what you send |
 | Option button | Moves the question to `done` as ✓ does, but does not add its id to `notify`, then submits the quoted question and the option as your prompt. A failed submit moves it back | Its own file | That prompt |
 | ⧉ | Copies to the clipboard | None | Nothing |
 | ↗ / Resume | Runs `open claude://claude.ai/epitaxy/<hostSessionId>` / fills `/resume <sessionId>` | None | Nothing |
@@ -160,6 +160,7 @@ sequenceDiagram
     U->>P: ↩ or an option button
     P->>F: move the question to done (option button)
     P->>B: quote (↩) / submit quote and option
+    B->>F: move each question quoted unedited to done (↩, on send)
     B->>M: prompt, plus "[Follow-ups] ... marked done" context
 ```
 
@@ -207,7 +208,7 @@ that calls `$` lives in `hooks/register.tsx`, and the other modules hold only co
 | `hooks/prs.ts` | `gh pr view` arguments, reading its result, applying PR checks |
 | `hooks/state.ts` | Which state each end of a turn leaves |
 | `hooks/store.ts` | Session file locations and the queue that serializes reads and writes |
-| `hooks/actions.ts` | What ↩, option buttons, ⧉ and ↗ produce |
+| `hooks/actions.ts` | What ↩, option buttons, ⧉ and ↗ produce, and which questions a sent prompt replies to |
 | `hooks/common.ts` | Plugin, pane and tool names |
 | `hooks/parse.ts` | Parsing tool input and files |
 | `hooks/prompts.ts` | Every text the model reads |
