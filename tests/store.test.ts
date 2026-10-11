@@ -35,11 +35,12 @@ describe('parse', () => {
     expect(parseSetInput({ title: 't', items: [{ id: 'a\u001b', kind: 'question', text: 'x' }] })).toEqual({ error: 'items[0].id must be a non-empty string' })
   })
 
-  test('takes only an https: url on an item', () => {
+  test('takes only an http: or https: url on an item', () => {
     const withUrl = (url: string) => parseSetInput({ title: 't', items: [{ id: 'a', kind: 'user_action', text: 'Read it', url }] })
     expect(withUrl('https://example.com/docs?x=1#y')).toMatchObject({ items: [{ url: 'https://example.com/docs?x=1#y' }] })
-    for (const bad of ['http://example.com', 'javascript:alert(1)', 'file:///etc/passwd', 'https://', 'https://a b', 'HTTPS://example.com']) {
-      expect(withUrl(bad)).toEqual({ error: 'items[0].url must be an https: URL' })
+    expect(withUrl('http://localhost:3000/')).toMatchObject({ items: [{ url: 'http://localhost:3000/' }] })
+    for (const bad of ['javascript:alert(1)', 'file:///etc/passwd', 'https://', 'http://', 'https://a b', 'HTTPS://example.com']) {
+      expect(withUrl(bad)).toEqual({ error: 'items[0].url must be an http: or https: URL' })
     }
   })
 
@@ -89,7 +90,7 @@ describe('unreadable session files', () => {
       'session-d': JSON.stringify(fileOf('session-d', { hostSessionId: '../../x', items: [item] })),
       'session-e': JSON.stringify(fileOf('session-e', { prs: [{ number: 1, title: 'x', url: '--repo=evil/x', isDraft: false }] })),
       'session-f': JSON.stringify({ ...fileOf('session-f', { items: [item] }), cwd: 7 }),
-      'session-g': JSON.stringify(fileOf('session-g', { items: [{ ...item, url: 'http://example.com' }] })),
+      'session-g': JSON.stringify(fileOf('session-g', { items: [{ ...item, url: 'file:///etc/passwd' }] })),
       'session-h': JSON.stringify(fileOf('session-h', { items: Array.from({ length: 51 }, (_, index) => ({ ...item, id: `q${index}` })) })),
     }
     const gh: string[][] = []
@@ -111,7 +112,7 @@ describe('unreadable session files', () => {
     expect(failure).toContain('session-d.json is not a valid follow-ups session file (hostSessionId is not a Desktop session id)')
     expect(failure).toContain('session-e.json is not a valid follow-ups session file (a stored PR is not a github.com pull request)')
     expect(failure).toContain('session-f.json is not a valid follow-ups session file (title, cwd and branch must be strings)')
-    expect(failure).toContain('session-g.json is not a valid follow-ups session file (items[0].url must be an https: URL)')
+    expect(failure).toContain('session-g.json is not a valid follow-ups session file (items[0].url must be an http: or https: URL)')
     expect(failure).toContain('session-h.json is not a valid follow-ups session file (items must have at most 50 entries)')
     await pane.unmount()
     for (const [id, text] of Object.entries(bad)) expect(w.raw(id)).toBe(text)

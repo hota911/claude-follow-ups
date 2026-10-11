@@ -29,8 +29,9 @@ export function stripControls(text: string): string {
   return text.replace(ESCAPE_SEQUENCE, '').replace(CONTROL, '')
 }
 
-// An https: URL with a host, and no whitespace or control character anywhere.
-const HTTPS_URL = /^https:\/\/[^\s/?#\u0000-\u001f\u007f-\u009f]+(?:[/?#][^\s\u0000-\u001f\u007f-\u009f]*)?$/
+// An http: or https: URL with a host, and no whitespace or control character anywhere. http: is
+// kept for local links such as a dev server's; schemes like file: and javascript: are refused.
+const WEB_URL = /^https?:\/\/[^\s/?#\u0000-\u001f\u007f-\u009f]+(?:[/?#][^\s\u0000-\u001f\u007f-\u009f]*)?$/
 
 // A question's choice buttons: few and short, so they fit on one line under it.
 export const OPTIONS_MIN = 2
@@ -72,7 +73,7 @@ function parseItem(item: unknown, index: number): PendingItem | { error: string 
   if (who.length > LIMITS.owner) return { error: INPUT_ERRORS.tooLong(`items[${index}].owner`, LIMITS.owner) }
   const link = url ?? ''
   if (link.length > LIMITS.url) return { error: INPUT_ERRORS.tooLong(`items[${index}].url`, LIMITS.url) }
-  if (link !== '' && !HTTPS_URL.test(link)) return { error: INPUT_ERRORS.url(index) }
+  if (link !== '' && !WEB_URL.test(link)) return { error: INPUT_ERRORS.url(index) }
   const choices = parseOptions(options, kind)
   if (choices === null) return { error: INPUT_ERRORS.options(index, OPTIONS_MIN, OPTIONS_MAX, OPTION_MAX_LENGTH) }
   return {
