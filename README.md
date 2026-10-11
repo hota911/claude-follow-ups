@@ -7,7 +7,7 @@ own actions, unverified points and next steps) through the `pending_items_set` t
 shows these, together with each session's open PRs, for all your sessions in a pane and in a
 one-line band above the prompt.
 
-Version 0.1.2.
+Version 0.1.3.
 
 ## Install
 
