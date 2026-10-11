@@ -8,7 +8,7 @@
  *   items change.
  * - TOOL_DESCRIPTION and INPUT_DESCRIPTIONS: the tool's description and its input schema,
  *   registered at session start.
- * - storedResult, hiddenResult, subagentDeny, inputDeny, storeFailedDeny, invalidFileDeny and INPUT_ERRORS: the
+ * - storedResult, hiddenResult, missingResult, currentResult, subagentDeny, inputDeny, storeFailedDeny, invalidFileDeny and INPUT_ERRORS: the
  *   tool result, or the deny reason, of one tool call.
  * - COMMAND_RESULT: the answer to /follow-ups, read by the model when it runs the command.
  * - doneNotice: context beside the prompt at prompt submit (never shown in the transcript).
@@ -29,8 +29,10 @@ const KINDS_GUIDE = [
 ].join(' ')
 
 export const TOOL_DESCRIPTION = [
-  'Replace the list of things this session is waiting on the user for, shown in the user\'s Follow-ups pane across sessions.',
-  'Always send the full current list; it replaces the previous one. Send an empty list when nothing is left.',
+  'Update the list of things this session is waiting on the user for, shown in the user\'s Follow-ups pane across sessions.',
+  'Send exactly one of items or changes. items is the full current list and replaces the stored one: send it on the first call, or whenever you are unsure what is stored.',
+  'Otherwise send only what changed with changes: upsert adds an item, or replaces the stored item with the same id; remove drops ids.',
+  'Send an empty items list, or remove every id, when nothing is left. The result ends with the ids and kinds now stored.',
   KINDS_GUIDE,
   'Write title and text in the language the user is using in this session, short and self-contained (readable without the conversation). Keep ids stable across calls.',
   'Ids the user marked done stay hidden even if sent again.',
@@ -39,8 +41,13 @@ export const TOOL_DESCRIPTION = [
 
 /** The descriptions of the tool's input fields, by field name. */
 export const INPUT_DESCRIPTIONS = {
-  title: 'Short name of what this session is doing, in the user\'s language',
-  activity: 'One short line on what this session is doing now, shown next to Running',
+  title: 'Short name of what this session is doing, in the user\'s language. Required with items; with changes, omit it to keep the stored one',
+  activity: 'One short line on what this session is doing now, shown next to Running. '
+    + 'With items, omit it to clear the line; with changes, omit it to keep the stored line, or send "" to clear it',
+  items: 'The full current list; it replaces the stored one. Send this or changes, not both',
+  changes: 'Only what changed in the stored list. Send this or items, not both',
+  upsert: 'Items to add, or to replace the stored item with the same id',
+  remove: 'Ids to remove, such as resolved items',
   id: 'Stable short slug chosen by you',
   text: 'Short, self-contained text in the user\'s language',
   owner: 'Who does it, mainly for next_step',
@@ -57,7 +64,8 @@ export function composeText(tool: string): string {
   return [
     '# Follow-ups for the user',
     `In the Follow-ups pane, the user tracks, across parallel sessions, what each session is waiting on them for, through the ${tool} tool.`,
-    'Call it with the full current list whenever a question, user_action, unverified point or next_step exists or changed, before you write your final reply of the turn, so the reply is written once.',
+    'Call it whenever a question, user_action, unverified point or next_step exists or changed, before you write your final reply of the turn, so the reply is written once.',
+    'Send only what changed with changes (upsert and remove); send the full list with items on the first call, or whenever you are unsure what is stored.',
     'If you call it after you already wrote that reply, end the turn after the call: do not restate or summarize the reply again.',
     KINDS_GUIDE,
     'Remove items that are resolved and keep ids stable.',
@@ -74,6 +82,15 @@ export function storedResult(count: number, title: string): string {
 
 export function hiddenResult(ids: readonly string[]): string {
   return `The user already marked these ids done, so they stay hidden: ${ids.join(', ')}. Use a new id only for genuinely new work.`
+}
+
+export function missingResult(ids: readonly string[]): string {
+  return `Not in the list, so nothing to remove (already removed or marked done): ${ids.join(', ')}.`
+}
+
+/** The last line of every result: what is stored now, so the model knows even after its context was compacted. */
+export function currentResult(items: readonly { id: string; kind: string }[]): string {
+  return `Current: ${items.length > 0 ? items.map(item => `${item.id} (${item.kind})`).join(', ') : 'none'}.`
 }
 
 export function subagentDeny(tool: string): string {
@@ -94,22 +111,29 @@ export function invalidFileDeny(tool: string, reason: string): string {
   return `${tool} did not store the list: ${reason}. Tell the user; calling again fails until they fix or remove the file.`
 }
 
-/** Why the tool's input was refused, one per check. */
+/**
+ * Why the tool's input was refused, one per check. `at` names the entry, such as `items[0]` or
+ * `changes.upsert[0]`.
+ */
 export const INPUT_ERRORS = {
+  itemsOrChanges: 'send exactly one of items (the full list) or changes (upsert and remove)',
+  changes: 'changes must be an object with only upsert and remove',
+  changesWithoutFile: 'nothing is stored for this session yet; send the full list with items and a title',
   title: 'title must be a string',
   activity: 'activity must be a string',
-  items: 'items must be an array',
-  item: (index: number) => `items[${index}] must be an object`,
-  id: (index: number) => `items[${index}].id must be a non-empty string`,
-  duplicateId: (index: number, id: string) => `items[${index}].id "${id}" is duplicated`,
-  kind: (index: number, kinds: readonly string[]) => `items[${index}].kind must be one of ${kinds.join(', ')}`,
-  text: (index: number) => `items[${index}].text must be a non-empty string`,
-  ownerUrl: (index: number) => `items[${index}].owner and url must be strings`,
-  url: (index: number) => `items[${index}].url must be an http: or https: URL`,
+  array: (field: string) => `${field} must be an array`,
+  item: (at: string) => `${at} must be an object`,
+  nonEmpty: (field: string) => `${field} must be a non-empty string`,
+  duplicateId: (field: string, id: string) => `${field} "${id}" is duplicated`,
+  upsertAndRemove: (id: string) => `"${id}" is in both changes.upsert and changes.remove`,
+  kind: (at: string, kinds: readonly string[]) => `${at}.kind must be one of ${kinds.join(', ')}`,
+  ownerUrl: (at: string) => `${at}.owner and url must be strings`,
+  url: (at: string) => `${at}.url must be an http: or https: URL`,
   tooLong: (field: string, max: number) => `${field} must be at most ${max} characters`,
-  tooMany: (max: number) => `items must have at most ${max} entries`,
-  options: (index: number, min: number, max: number, maxLength: number) =>
-    `items[${index}].options is only for kind question, and must be ${min}-${max} distinct one-line strings of at most ${maxLength} characters`,
+  tooMany: (field: string, max: number) => `${field} must have at most ${max} entries`,
+  listTooLong: (count: number, max: number) => `the list would have ${count} items; it can hold at most ${max}`,
+  options: (at: string, min: number, max: number, maxLength: number) =>
+    `${at}.options is only for kind question, and must be ${min}-${max} distinct one-line strings of at most ${maxLength} characters`,
 } as const
 
 export const COMMAND_RESULT = 'Opened the Follow-ups pane.'

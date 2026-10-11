@@ -6,7 +6,7 @@ Claude Code のプラグインである。Claude は、各セッションが本�
 未検証の点、次の手順）を `pending_items_set` ツールで報告する。プラグインはそれを各セッションの
 未マージの PR とあわせて、全セッション分、Pane とプロンプト上の1行の帯に表示する。
 
-版は 0.1.2 である。
+版は 0.1.3 である。
 
 ## インストール
 
@@ -30,14 +30,23 @@ Claude Code のプラグインである。Claude は、各セッションが本�
 ### ツール
 
 プラグインはツール `pending_items_set`（正式名 `mcp__follow-ups__pending_items_set`）を登録し、
-いつ呼ぶかを Claude に伝える短い節をシステムプロンプトに加える。呼び出しのたびに、セッションの
-一覧全体を置き換える。
+いつ呼ぶかを Claude に伝える短い節をシステムプロンプトに加える。呼び出しは `items` と
+`changes` のどちらか一方だけを送る。
 
-- `title`（必須）: セッションがしていることの短い名前。
-- `items`（必須）: 各項目は `id`、`kind`、`text` と、任意の `owner`、`url`、`options` を持つ。
-- `activity`: セッションがいましていることの1行。Running の横に表示する。
+- `items`: 一覧全体。保存済みの一覧を置き換える。各項目は `id`、`kind`、`text` と、任意の
+  `owner`、`url`、`options` を持つ。`items` には `title` が必須である。
+- `changes`: 変わった分だけ。`upsert` の項目は同じ id の保存済み項目を置き換え、なければ末尾に
+  加える。`remove` の id は一覧から除く（保存されていない id は拒否せず、結果で示す）。
+  `title` と `activity` を省くと保存済みの値を保つ。
+- `title`: セッションがしていることの短い名前。
+- `activity`: セッションがいましていることの1行。Running の横に表示する。`items` では省くと
+  消え、`changes` では `""` を送ると消える。
 
-上限を超えた呼び出しは、切り詰めずに理由を添えて拒否する。上限は、項目 50 個、`id` 64 文字、
+結果の最後の行は、保存済みの id と種類である（例: `Current: q1 (question), merge (next_step).`）。
+二つの入力を持つ理由は [docs/design/diff-updates.md](docs/design/diff-updates.md) に書いた。
+
+上限を超えた呼び出しは、切り詰めずに理由を添えて拒否する。上限は、項目 50 個（`items`、`upsert`、
+`remove`、`changes` を適用したあとの一覧のそれぞれ）、`id` 64 文字、
 `text` 500 文字、`title` 120 文字、`owner` 60 文字、`activity` 120 文字、`url` 2000 文字である。
 `url` は `https:` か `http:` の URL に限る（`file:` などほかのスキームは拒否する）。文字列からは制御文字と端末のエスケープシーケンスを取り除く
 （改行とタブは残す）。
@@ -117,7 +126,7 @@ URL が github.com のプルリクエストであるときだけである。通�
 | プロンプトの組み立て（`prompt.compose`） | 固定文のシステムプロンプトの節を加える。いつツールを呼ぶか、種類、セッションの言語で書くことである。項目を含まないため、ターンごとに変わらない。チームメイトには加えない | なし | その節（毎ターン） |
 | プロンプトの送信（`prompt.submit`） | ファイルの `notify` にある id を取り出して空にする | 自分のファイルを読み書きする | プロンプトの横の文脈。指示の1行のあとに、項目をデータとして `<done-items>` ブロックに入れる。例: `<item id="q1">What is the budget?</item>`（エスケープし、1行にまとめ、200 文字で切る）。トランスクリプトには出ない |
 | ターン開始（`turn.start`） | 状態を Running にし、前のターンの `activity` を消す | 自分のファイル | なし |
-| モデルが `pending_items_set` を呼ぶ | タイトル、項目、activity を置き換える。本人が完了にした id は落とす。このセッションの一覧が空だったら Pane を開く | 自分のファイルに書く（なければ作る） | `Stored N item(s) for "<title>".` と、隠したままの id（あれば） |
+| モデルが `pending_items_set` を呼ぶ | タイトル、項目、activity を置き換える（`items`）か、`changes` を適用する。本人が完了にした id は落とす。このセッションの一覧が空だったら Pane を開く | 自分のファイルに書く（なければ作る） | `Stored N item(s) for "<title>".` と、隠したままの id と保存されていなかった削除対象の id（あれば）。続けて `Current: <id> (<kind>), ...` |
 | Bash の `gh pr create` | 出力にある PR の URL を調べて `prs` に加える。Bash の結果は変えない | 自分のファイル | なし |
 | 権限の確認（`tool.check` の判定が ask） | 状態を Needs permission にし、その呼び出しが終わったら Running に戻す | 自分のファイル | なし |
 | ターン終了（`turn.complete`） | 状態を Waiting for you、Interrupted、Error、または起動したサブエージェントが動いていれば Background task running にする。続いてブランチの PR を調べ、PR を確認し直す。そのサブエージェントの最後の1つが終わると Waiting for you にする | 自分のファイル | なし |
@@ -139,7 +148,7 @@ sequenceDiagram
     participant P as Pane / 帯
     participant U as 本人
     participant B as 入力欄
-    M->>T: 項目の一覧全体
+    M->>T: 項目の一覧全体、または変わった分
     T->>F: 項目を書く
     T-->>M: Stored N item(s)
     F->>P: 読み込み（書き込みのたび、30 秒ごと）
@@ -199,6 +208,8 @@ sequenceDiagram
 | `hooks/common.ts` | プラグイン、Pane、ツールの名前 |
 | `hooks/parse.ts` | ツールの入力とファイルの解析 |
 | `hooks/prompts.ts` | モデルが読むすべての文言 |
+
+設計メモは `docs/design/` にある: [差分での更新](docs/design/diff-updates.md)。
 
 テストは `tests/`（`render`、`state`、`store`、`prs`）にあり、共通の準備は `tests/world.ts` に置く。
 リポジトリのルートで次を実行する。

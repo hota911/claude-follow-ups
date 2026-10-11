@@ -5,8 +5,16 @@ import { HOST_ID_PATTERN, SESSION_ID_PATTERN } from './store'
 export const KINDS: readonly PendingItemKind[] = ['question', 'user_action', 'unverified', 'next_step']
 export const STATES: readonly PendingItemsSessionState[] = ['running', 'background', 'waiting_permission', 'idle', 'interrupted', 'error', 'ended']
 
-/** The tool's input after validation. */
-export type SetInput = { title: string; items: PendingItem[]; activity?: string }
+/** What changed in the stored list: items to add or replace by id, and ids to remove. */
+export type ItemChanges = { upsert: PendingItem[]; remove: string[] }
+
+/**
+ * The tool's input after validation: the full list, which replaces the stored one (no activity
+ * clears it), or what changed in it (no title or activity keeps the stored one; activity '' clears it).
+ */
+export type SetInput =
+  | { title: string; items: PendingItem[]; activity?: string }
+  | { title?: string; changes: ItemChanges; activity?: string }
 
 /** The most the tool takes, and a session file may hold: items per list, characters per field. */
 export const LIMITS = { items: 50, id: 64, text: 500, title: 120, owner: 60, activity: 120, url: 2000 } as const
@@ -56,26 +64,36 @@ function parseOptions(options: unknown, kind: string): string[] | undefined | nu
   return trimmed
 }
 
-/** One item, from the tool's input or a session file; returns the reason when it is refused. */
-function parseItem(item: unknown, index: number): PendingItem | { error: string } {
-  if (!isObject(item)) return { error: INPUT_ERRORS.item(index) }
-  const { id, kind, text, owner, url, options } = item
-  if (typeof id !== 'string' || id === '' || stripControls(id) !== id) return { error: INPUT_ERRORS.id(index) }
-  if (id.length > LIMITS.id) return { error: INPUT_ERRORS.tooLong(`items[${index}].id`, LIMITS.id) }
+/** An id: a non-empty string of at most LIMITS.id characters, with no control character; `field` names it in the reason. */
+function parseId(id: unknown, field: string): string | { error: string } {
+  if (typeof id !== 'string' || id === '' || stripControls(id) !== id) return { error: INPUT_ERRORS.nonEmpty(field) }
+  if (id.length > LIMITS.id) return { error: INPUT_ERRORS.tooLong(field, LIMITS.id) }
+  return id
+}
+
+/**
+ * One item, from the tool's input or a session file, `at` naming it (`items[0]`); returns the
+ * reason when it is refused.
+ */
+function parseItem(item: unknown, at: string): PendingItem | { error: string } {
+  if (!isObject(item)) return { error: INPUT_ERRORS.item(at) }
+  const { kind, text, owner, url, options } = item
+  const id = parseId(item.id, `${at}.id`)
+  if (typeof id !== 'string') return id
   if (typeof kind !== 'string' || !(KINDS as readonly string[]).includes(kind)) {
-    return { error: INPUT_ERRORS.kind(index, KINDS) }
+    return { error: INPUT_ERRORS.kind(at, KINDS) }
   }
   const body = typeof text === 'string' ? stripControls(text).trim() : ''
-  if (body === '') return { error: INPUT_ERRORS.text(index) }
-  if (body.length > LIMITS.text) return { error: INPUT_ERRORS.tooLong(`items[${index}].text`, LIMITS.text) }
-  if (!optionalString(owner) || !optionalString(url)) return { error: INPUT_ERRORS.ownerUrl(index) }
+  if (body === '') return { error: INPUT_ERRORS.nonEmpty(`${at}.text`) }
+  if (body.length > LIMITS.text) return { error: INPUT_ERRORS.tooLong(`${at}.text`, LIMITS.text) }
+  if (!optionalString(owner) || !optionalString(url)) return { error: INPUT_ERRORS.ownerUrl(at) }
   const who = owner === undefined ? '' : stripControls(owner).trim()
-  if (who.length > LIMITS.owner) return { error: INPUT_ERRORS.tooLong(`items[${index}].owner`, LIMITS.owner) }
+  if (who.length > LIMITS.owner) return { error: INPUT_ERRORS.tooLong(`${at}.owner`, LIMITS.owner) }
   const link = url ?? ''
-  if (link.length > LIMITS.url) return { error: INPUT_ERRORS.tooLong(`items[${index}].url`, LIMITS.url) }
-  if (link !== '' && !WEB_URL.test(link)) return { error: INPUT_ERRORS.url(index) }
+  if (link.length > LIMITS.url) return { error: INPUT_ERRORS.tooLong(`${at}.url`, LIMITS.url) }
+  if (link !== '' && !WEB_URL.test(link)) return { error: INPUT_ERRORS.url(at) }
   const choices = parseOptions(options, kind)
-  if (choices === null) return { error: INPUT_ERRORS.options(index, OPTIONS_MIN, OPTIONS_MAX, OPTION_MAX_LENGTH) }
+  if (choices === null) return { error: INPUT_ERRORS.options(at, OPTIONS_MIN, OPTIONS_MAX, OPTION_MAX_LENGTH) }
   return {
     id,
     kind: kind as PendingItemKind,
@@ -92,27 +110,73 @@ function shortLine(text: string, max: number): string | null {
   return line.length > max ? null : line
 }
 
-/** Validates the model's tool input; returns the reason when it is refused. */
-export function parseSetInput(input: Record<string, unknown>): SetInput | { error: string } {
-  const { title, items, activity } = input
-  if (typeof title !== 'string') return { error: INPUT_ERRORS.title }
-  const name = shortLine(title, LIMITS.title)
-  if (name === null) return { error: INPUT_ERRORS.tooLong('title', LIMITS.title) }
-  if (!optionalString(activity)) return { error: INPUT_ERRORS.activity }
-  const line = shortLine(activity ?? '', LIMITS.activity)
-  if (line === null) return { error: INPUT_ERRORS.tooLong('activity', LIMITS.activity) }
-  if (!Array.isArray(items)) return { error: INPUT_ERRORS.items }
-  if (items.length > LIMITS.items) return { error: INPUT_ERRORS.tooMany(LIMITS.items) }
-  const seen = new Set<string>()
+/** A list of items from the tool's input, `field` naming it; distinct ids, at most LIMITS.items. */
+function parseItemList(value: unknown, field: string): PendingItem[] | { error: string } {
+  if (!Array.isArray(value)) return { error: INPUT_ERRORS.array(field) }
+  if (value.length > LIMITS.items) return { error: INPUT_ERRORS.tooMany(field, LIMITS.items) }
   const parsed: PendingItem[] = []
-  for (const [index, item] of items.entries()) {
-    const one = parseItem(item, index)
+  for (const [index, item] of value.entries()) {
+    const one = parseItem(item, `${field}[${index}]`)
     if ('error' in one) return one
-    if (seen.has(one.id)) return { error: INPUT_ERRORS.duplicateId(index, one.id) }
-    seen.add(one.id)
+    if (parsed.some(other => other.id === one.id)) return { error: INPUT_ERRORS.duplicateId(`${field}[${index}].id`, one.id) }
     parsed.push(one)
   }
-  return { title: name, items: parsed, ...(line !== '' ? { activity: line } : {}) }
+  return parsed
+}
+
+/** `changes.remove`: distinct ids, at most LIMITS.items. */
+function parseRemove(value: unknown): string[] | { error: string } {
+  const field = 'changes.remove'
+  if (!Array.isArray(value)) return { error: INPUT_ERRORS.array(field) }
+  if (value.length > LIMITS.items) return { error: INPUT_ERRORS.tooMany(field, LIMITS.items) }
+  const ids: string[] = []
+  for (const [index, entry] of value.entries()) {
+    const id = parseId(entry, `${field}[${index}]`)
+    if (typeof id !== 'string') return id
+    if (ids.includes(id)) return { error: INPUT_ERRORS.duplicateId(`${field}[${index}]`, id) }
+    ids.push(id)
+  }
+  return ids
+}
+
+/** `changes`: only `upsert` and `remove`, each optional, and no id in both. */
+function parseChanges(value: unknown): ItemChanges | { error: string } {
+  if (!isObject(value) || Object.keys(value).some(key => key !== 'upsert' && key !== 'remove')) {
+    return { error: INPUT_ERRORS.changes }
+  }
+  const upsert = value.upsert === undefined ? [] : parseItemList(value.upsert, 'changes.upsert')
+  if ('error' in upsert) return upsert
+  const remove = value.remove === undefined ? [] : parseRemove(value.remove)
+  if ('error' in remove) return remove
+  const both = upsert.find(item => remove.includes(item.id))
+  if (both !== undefined) return { error: INPUT_ERRORS.upsertAndRemove(both.id) }
+  return { upsert, remove }
+}
+
+/** A one-line field (title, activity) as sent: undefined when absent, refused when not a string or over `max`. */
+function parseLine(value: unknown, field: 'title' | 'activity', max: number): string | undefined | { error: string } {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string') return { error: INPUT_ERRORS[field] }
+  return shortLine(value, max) ?? { error: INPUT_ERRORS.tooLong(field, max) }
+}
+
+/** Validates the model's tool input; returns the reason when it is refused. */
+export function parseSetInput(input: Record<string, unknown>): SetInput | { error: string } {
+  const { title, items, changes, activity } = input
+  if ((items === undefined) === (changes === undefined)) return { error: INPUT_ERRORS.itemsOrChanges }
+  const name = parseLine(title, 'title', LIMITS.title)
+  if (typeof name === 'object') return name
+  const line = parseLine(activity, 'activity', LIMITS.activity)
+  if (typeof line === 'object') return line
+  if (changes !== undefined) {
+    const parsed = parseChanges(changes)
+    if ('error' in parsed) return parsed
+    return { ...(name !== undefined ? { title: name } : {}), changes: parsed, ...(line !== undefined ? { activity: line } : {}) }
+  }
+  if (name === undefined) return { error: INPUT_ERRORS.title }
+  const parsed = parseItemList(items, 'items')
+  if ('error' in parsed) return parsed
+  return { title: name, items: parsed, ...(line !== undefined && line !== '' ? { activity: line } : {}) }
 }
 
 /** A stored PR as this mod writes it, its url a github.com PR's; undefined when it is not one. */
@@ -130,7 +194,7 @@ function parseDone(value: unknown, index: number): PendingItemsDone | { error: s
   const { id, doneAt } = value
   if (typeof id !== 'string' || typeof doneAt !== 'number') return refused
   if ('item' in value) {
-    const item = parseItem(value.item, index)
+    const item = parseItem(value.item, 'item')
     return 'error' in item ? { error: `done[${index}]: ${item.error}` } : { id, doneAt, item }
   }
   const pr = parsePr(value.pr)
@@ -174,11 +238,11 @@ export function parseSessionFile(text: string, fileName: string): PendingItemsSe
   if (!Array.isArray(rawDismissed) || !rawDismissed.every(id => typeof id === 'string')) return { error: 'dismissed must be strings' }
   const dismissed: string[] = rawDismissed
   const rawItems = v.items
-  if (!Array.isArray(rawItems)) return { error: INPUT_ERRORS.items }
-  if (rawItems.length > LIMITS.items) return { error: INPUT_ERRORS.tooMany(LIMITS.items) }
+  if (!Array.isArray(rawItems)) return { error: INPUT_ERRORS.array('items') }
+  if (rawItems.length > LIMITS.items) return { error: INPUT_ERRORS.tooMany('items', LIMITS.items) }
   const items: PendingItem[] = []
   for (const [index, entry] of rawItems.entries()) {
-    const item = parseItem(entry, index)
+    const item = parseItem(entry, `items[${index}]`)
     if ('error' in item) return item
     items.push(item)
   }

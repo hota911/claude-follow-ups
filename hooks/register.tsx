@@ -28,10 +28,12 @@ import { failedLookup, lookupOf, type PrCheck, type PrLookup, prViewArgv, withPr
 import {
   COMMAND_RESULT,
   composeText,
+  currentResult,
   hiddenResult,
   INPUT_DESCRIPTIONS,
   inputDeny,
   invalidFileDeny,
+  missingResult,
   storedResult,
   storeFailedDeny,
   subagentDeny,
@@ -68,35 +70,47 @@ const paneArmed = atom({ plugin: 'follow-ups', key: 'paneArmed' } as const, true
 
 type Engine = EngineInterface
 
+const ITEM_SCHEMA = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', maxLength: LIMITS.id, description: INPUT_DESCRIPTIONS.id },
+    kind: { type: 'string', enum: ['question', 'user_action', 'unverified', 'next_step'] },
+    text: { type: 'string', maxLength: LIMITS.text, description: INPUT_DESCRIPTIONS.text },
+    owner: { type: 'string', maxLength: LIMITS.owner, description: INPUT_DESCRIPTIONS.owner },
+    url: { type: 'string', maxLength: LIMITS.url, description: INPUT_DESCRIPTIONS.url },
+    options: {
+      type: 'array',
+      items: { type: 'string', maxLength: OPTION_MAX_LENGTH },
+      minItems: OPTIONS_MIN,
+      maxItems: OPTIONS_MAX,
+      description: INPUT_DESCRIPTIONS.options,
+    },
+  },
+  required: ['id', 'kind', 'text'],
+}
+
+// Exactly one of items and changes, and title with items: parseSetInput checks both, so no field is required here.
 const INPUT_SCHEMA = {
   type: 'object',
   properties: {
     title: { type: 'string', maxLength: LIMITS.title, description: INPUT_DESCRIPTIONS.title },
     activity: { type: 'string', maxLength: LIMITS.activity, description: INPUT_DESCRIPTIONS.activity },
-    items: {
-      type: 'array',
-      maxItems: LIMITS.items,
-      items: {
-        type: 'object',
-        properties: {
-          id: { type: 'string', maxLength: LIMITS.id, description: INPUT_DESCRIPTIONS.id },
-          kind: { type: 'string', enum: ['question', 'user_action', 'unverified', 'next_step'] },
-          text: { type: 'string', maxLength: LIMITS.text, description: INPUT_DESCRIPTIONS.text },
-          owner: { type: 'string', maxLength: LIMITS.owner, description: INPUT_DESCRIPTIONS.owner },
-          url: { type: 'string', maxLength: LIMITS.url, description: INPUT_DESCRIPTIONS.url },
-          options: {
-            type: 'array',
-            items: { type: 'string', maxLength: OPTION_MAX_LENGTH },
-            minItems: OPTIONS_MIN,
-            maxItems: OPTIONS_MAX,
-            description: INPUT_DESCRIPTIONS.options,
-          },
+    items: { type: 'array', maxItems: LIMITS.items, items: ITEM_SCHEMA, description: INPUT_DESCRIPTIONS.items },
+    changes: {
+      type: 'object',
+      properties: {
+        upsert: { type: 'array', maxItems: LIMITS.items, items: ITEM_SCHEMA, description: INPUT_DESCRIPTIONS.upsert },
+        remove: {
+          type: 'array',
+          maxItems: LIMITS.items,
+          items: { type: 'string', maxLength: LIMITS.id },
+          description: INPUT_DESCRIPTIONS.remove,
         },
-        required: ['id', 'kind', 'text'],
       },
+      additionalProperties: false,
+      description: INPUT_DESCRIPTIONS.changes,
     },
   },
-  required: ['title', 'items'],
 }
 
 // Fixed text: see composeText.
@@ -457,13 +471,13 @@ async function recordState(
   })
 }
 
-/** The tool: replaces this session's items and activity, keeping dismissed ids hidden. */
-async function setItems($: Engine, input: SetInput): Promise<SetOutcome> {
+/** The tool: replaces or changes this session's items and activity (see applySet). */
+async function setItems($: Engine, input: SetInput): Promise<SetOutcome | { error: string }> {
   const own = await ownBase($)
   const now = await $.clock.now()
   const outcome = await withFile(async () => {
-    const stored = (await readSession($, own.path)) ?? blankFile(own.id, own.cwd, own.branch, now)
-    const result = applySet(stored, input, own, await read($, ownState), now)
+    const result = applySet(await readSession($, own.path), input, own, await read($, ownState), now)
+    if ('error' in result) return result
     await saveFile($, own.path, result.file)
     return result
   })
@@ -606,20 +620,20 @@ export const register: Register = on => {
     }
     const input = parseSetInput(e as unknown as Record<string, unknown>)
     if ('error' in input) return { deny: inputDeny(TOOL_FULL, input.error) }
-    let outcome: SetOutcome
+    let outcome: SetOutcome | { error: string }
     try {
       outcome = await setItems($, input)
     } catch (err) {
       if (err instanceof InvalidSessionFileError) return { deny: invalidFileDeny(TOOL_FULL, err.message) }
       throw err
     }
-    const { file, hidden } = outcome
-    // One line: the model already holds the list it sent; only hidden ids are news to it.
+    if ('error' in outcome) return { deny: inputDeny(TOOL_FULL, outcome.error) }
+    const { file, hidden, missing } = outcome
+    // What is news to the model on one line, then the stored ids and kinds, which it may have lost to compaction.
     const lines = [storedResult(file.items.length, file.title)]
-    if (hidden.length > 0) {
-      lines.push(hiddenResult(hidden))
-    }
-    return { result: lines.join(' ') }
+    if (hidden.length > 0) lines.push(hiddenResult(hidden))
+    if (missing.length > 0) lines.push(missingResult(missing))
+    return { result: `${lines.join(' ')}\n${currentResult(file.items)}` }
   }).catch(($, e) => ({ deny: storeFailedDeny(TOOL_FULL) }))
 
   on('prompt.compose', async ($, e, next) => {

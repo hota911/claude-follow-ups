@@ -7,7 +7,7 @@ own actions, unverified points and next steps) through the `pending_items_set` t
 shows these, together with each session's open PRs, for all your sessions in a pane and in a
 one-line band above the prompt.
 
-Version 0.1.2.
+Version 0.1.3.
 
 ## Install
 
@@ -32,14 +32,22 @@ and install again with the command above; session files are kept.
 
 The plugin registers the tool `pending_items_set` (full name
 `mcp__follow-ups__pending_items_set`) and adds a short section to the system prompt telling
-Claude when to call it. Each call replaces the session's whole list:
+Claude when to call it. Each call sends exactly one of `items` or `changes`:
 
-- `title` (required): a short name for what the session is doing.
-- `items` (required): each item has `id`, `kind`, `text`, and optionally `owner`, `url` and
-  `options`.
-- `activity`: one line on what the session is doing now, shown next to Running.
+- `items`: the full list, which replaces the stored one. Each item has `id`, `kind`, `text`,
+  and optionally `owner`, `url` and `options`. `title` is required with it.
+- `changes`: only what changed. `upsert` holds items that replace the stored item with the same
+  id, or are appended; `remove` holds ids to drop (an id not stored is named in the result, not
+  refused). An omitted `title` or `activity` keeps the stored one.
+- `title`: a short name for what the session is doing.
+- `activity`: one line on what the session is doing now, shown next to Running. With `items`,
+  omitting it clears the line; with `changes`, `""` clears it.
 
-A call over a limit is refused with the reason, never cut: at most 50 items; `id` 64
+Every result ends with the stored ids and kinds, e.g. `Current: q1 (question), merge (next_step).`
+See [docs/design/diff-updates.md](docs/design/diff-updates.md) for why both inputs exist.
+
+A call over a limit is refused with the reason, never cut: at most 50 items (in `items`, in
+`upsert`, in `remove`, and in the list a `changes` call would leave); `id` 64
 characters, `text` 500, `title` 120, `owner` 60, `activity` 120, `url` 2000. `url` must be an
 `https:` or `http:` URL (other schemes such as `file:` are refused). Control characters and terminal escape sequences are removed from the text
 (newlines and tabs are kept).
@@ -120,7 +128,7 @@ a list over this session's own such file. Fix or remove the file to recover.
 | Prompt compose (`prompt.compose`) | Adds a fixed system prompt section: when to call the tool, the kinds, and to write in the session's language. It holds no items, so it does not change between turns. Skipped for teammates | None | The section, every turn |
 | Prompt submit (`prompt.submit`) | Takes the ids in the file's `notify` list and clears it | Reads and writes its own file | Context beside the prompt: one instruction line, then the items as data in a `<done-items>` block, e.g. `<item id="q1">What is the budget?</item>` (escaped, on one line, cut at 200 characters). It is not shown in the transcript |
 | Turn start (`turn.start`) | State Running; the previous turn's `activity` is removed | Its own file | Nothing |
-| The model calls `pending_items_set` | Replaces the title, items and activity. Ids you already marked done are dropped. The pane opens if this session's list was empty | Writes its own file (creating it) | `Stored N item(s) for "<title>".`, plus the ids kept hidden, if any |
+| The model calls `pending_items_set` | Replaces the title, items and activity (`items`), or applies `changes` to them. Ids you already marked done are dropped. The pane opens if this session's list was empty | Writes its own file (creating it) | `Stored N item(s) for "<title>".`, plus the ids kept hidden and the removed ids not stored, if any; then `Current: <id> (<kind>), ...` |
 | Bash `gh pr create` | PR URLs in its output are looked up and added to `prs`. The Bash result is unchanged | Its own file | Nothing |
 | Permission prompt (`tool.check` returns ask) | State Needs permission; back to Running when that call finishes | Its own file | Nothing |
 | Turn end (`turn.complete`) | State Waiting for you, Interrupted, Error, or Background task running while a subagent it started is active. Then the branch PR lookup and the PR re-check. When the last such subagent ends, Waiting for you | Its own file | Nothing |
@@ -142,7 +150,7 @@ sequenceDiagram
     participant P as Pane / band
     participant U as User
     participant B as Prompt box
-    M->>T: full list of items
+    M->>T: full list of items, or changes
     T->>F: write items
     T-->>M: Stored N item(s)
     F->>P: load (after each write, every 30 s)
@@ -203,6 +211,8 @@ that calls `$` lives in `hooks/register.tsx`, and the other modules hold only co
 | `hooks/common.ts` | Plugin, pane and tool names |
 | `hooks/parse.ts` | Parsing tool input and files |
 | `hooks/prompts.ts` | Every text the model reads |
+
+Design notes are in `docs/design/`: [diff updates](docs/design/diff-updates.md).
 
 Tests are in `tests/` (`render`, `state`, `store`, `prs`), with shared setup in `tests/world.ts`.
 Run at the repository root:
