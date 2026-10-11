@@ -35,6 +35,15 @@ export function replyFill(draft: string, quote: string): { text: string; mode: '
     : { text: `${draft}${draft.endsWith('\n') ? '' : '\n'}${quote}\n\n`, mode: 'replace' }
 }
 
+/**
+ * Whether the box read back after a fill holds what was filled. Trailing whitespace is not
+ * compared: the Desktop surface reads a filled box back without its trailing newlines, e.g. a
+ * fill ending "\n\n" as the same text without them (observed 2026-10-11).
+ */
+export function holdsFill(box: string, filled: string): boolean {
+  return box.trimEnd() === filled.trimEnd()
+}
+
 // The tail of the queue withPromptBox runs on; separate from the session files' queue (store.ts),
 // so a fill never waits behind a file write, and the two never nest.
 let promptQueue: Promise<unknown> = Promise.resolve()

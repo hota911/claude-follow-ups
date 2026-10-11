@@ -5,7 +5,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderSurface } from 'claude-code'
 
 import type { PendingItem, PendingItemsLoad, PendingItemsPr, PendingItemsSessionFile, PendingItemsSessionState, PendingItemsView } from '../types'
-import { answerOf, copyTextOf, hostLinkOf, quoteOf, replyFill, withPromptBox } from './actions'
+import { answerOf, copyTextOf, holdsFill, hostLinkOf, quoteOf, replyFill, withPromptBox } from './actions'
 import { BAND_CLOSED_KEY, errorLine, PANE, PANE_TITLE, PLUGIN, SHOW_DONE_KEY, TOOL, TOOL_FULL } from './common'
 import { answered, applySet, dismissed, doneNoticeOf, type SetOutcome, undone, withNotify } from './items'
 import {
@@ -58,6 +58,7 @@ const files = atom({ plugin: 'follow-ups', key: 'files' } as const, { status: 'l
 const selfId = atom({ plugin: 'follow-ups', key: 'selfId' } as const, null)
 const view = atom({ plugin: 'follow-ups', key: 'view' } as const, 'self')
 const fault = atom({ plugin: 'follow-ups', key: 'fault' } as const, null)
+const invalidFiles = atom({ plugin: 'follow-ups', key: 'invalidFiles' } as const, null)
 const showDone = atom({ plugin: 'follow-ups', key: 'showDone' } as const, false)
 const bandClosed = atom({ plugin: 'follow-ups', key: 'bandClosed' } as const, null)
 const writeGen = atom({ plugin: 'follow-ups', key: 'writeGen' } as const, 0)
@@ -101,12 +102,20 @@ const INPUT_SCHEMA = {
 // Fixed text: see composeText.
 const COMPOSE_TEXT = composeText(TOOL_FULL)
 
-/** Runs a background step; a failure is kept for the pane instead of being dropped. */
-function runStep($: Engine, step: () => Promise<void>): void {
-  void step().catch(async (err: unknown) => {
-    const message = errorLine(err)
-    await update($, fault, () => message)
-  })
+/**
+ * Runs a background step; a failure is kept for the pane instead of being dropped. A press's
+ * step that succeeds clears the failure an earlier press left; a background step's stays.
+ */
+function runStep($: Engine, step: () => Promise<void>, source: 'press' | 'background' = 'background'): void {
+  void step().then(
+    async () => {
+      if (source === 'press' && (await read($, fault))?.source === 'press') await update($, fault, () => null)
+    },
+    async (err: unknown) => {
+      const message = errorLine(err)
+      await update($, fault, () => ({ message, source }))
+    },
+  )
 }
 
 /**
@@ -212,7 +221,7 @@ async function saveFile($: Engine, path: string, file: PendingItemsSessionFile):
  * load publishes. An unchanged result is not written, so it does not redraw the pane.
  * Another session's file whose Desktop session is archived is deleted instead of listed; this
  * session's own file never is. A file that does not parse is skipped, left as it is, and named
- * in `fault`.
+ * in `invalidFiles` until a load finds none.
  */
 async function loadFiles($: Engine): Promise<void> {
   const startGen = await read($, writeGen)
@@ -252,9 +261,9 @@ async function loadFiles($: Engine): Promise<void> {
   } catch (err) {
     loaded = { status: 'error', message: errorLine(err) }
   }
-  if (skipped.length > 0) {
-    const message = skipped.join('; ')
-    if ((await read($, fault)) !== message) await update($, fault, () => message)
+  if (loaded.status === 'ok') {
+    const message = skipped.length > 0 ? skipped.join('; ') : null
+    if ((await read($, invalidFiles)) !== message) await update($, invalidFiles, () => message)
   }
   if ((await read($, writeGen)) !== startGen) return
   const before = JSON.stringify(await read($, files))
@@ -492,7 +501,7 @@ async function replyTo($: Engine, item: PendingItem): Promise<void> {
     const fill = replyFill((await $.prompt.read()).text, quoteOf(item))
     const filled = await $.prompt.fill(fill)
     if (!filled.isFilled) throw new Error('the prompt box did not take the quote')
-    if (filled.text !== fill.text) throw new Error('the prompt box changed while the quote was put in; check the draft')
+    if (!holdsFill(filled.text, fill.text)) throw new Error('the prompt box changed while the quote was put in; check the draft')
   })
 }
 
@@ -549,7 +558,7 @@ async function fillResume($: Engine, sessionId: string): Promise<void> {
     const text = `/resume ${sessionId}`
     const filled = await $.prompt.fill({ text, mode: 'replace' })
     if (!filled.isFilled) throw new Error('the prompt box did not take /resume')
-    if (filled.text !== text) throw new Error('the prompt box changed while /resume was put in; check the draft')
+    if (!holdsFill(filled.text, text)) throw new Error('the prompt box changed while /resume was put in; check the draft')
   })
 }
 
@@ -708,29 +717,31 @@ export const register: Register = on => {
       state: await read($, files),
       self: await read($, selfId),
       mode: await read($, view),
-      failure: await read($, fault),
+      failure: (await read($, fault))?.message ?? null,
+      invalidFiles: await read($, invalidFiles),
       withDone: await read($, showDone),
       now: await $.clock.now(),
       isFocused: e.props.isFocused,
       surface: e.surface,
     }
+    const press = (step: () => Promise<void>) => runStep($, step, 'press')
     return paneView(els, data, {
-      done: (sessionId, id, act) => runStep($, () => changeSession($, sessionId, act, (file, now) => dismissed(file, id, now))),
-      undo: (sessionId, id, act) => runStep($, () => changeSession($, sessionId, act, file => undone(file, id))),
-      copy: (item, surface) => runStep($, () => copyItem($, item, surface)),
-      reply: item => runStep($, () => replyTo($, item)),
-      answer: (item, option, act) => runStep($, () => answerWith($, item, option, act)),
-      open: host => runStep($, () => openHostSession($, host)),
-      resume: sessionId => runStep($, () => fillResume($, sessionId)),
+      done: (sessionId, id, act) => press(() => changeSession($, sessionId, act, (file, now) => dismissed(file, id, now))),
+      undo: (sessionId, id, act) => press(() => changeSession($, sessionId, act, file => undone(file, id))),
+      copy: (item, surface) => press(() => copyItem($, item, surface)),
+      reply: item => press(() => replyTo($, item)),
+      answer: (item, option, act) => press(() => answerWith($, item, option, act)),
+      open: host => press(() => openHostSession($, host)),
+      resume: sessionId => press(() => fillResume($, sessionId)),
       // A view switch also reloads, so archived sessions' files are cleared then too.
-      choose: (chosen: PendingItemsView) => runStep($, async () => {
+      choose: (chosen: PendingItemsView) => press(async () => {
         await update($, view, () => chosen)
         keepFocus($, `view-${chosen}`)
         await loadFiles($)
       }),
-      refresh: () => runStep($, () => refresh($)),
+      refresh: () => press(() => refresh($)),
       // Flips the value as stored, not as drawn: a press on an older drawing must not set it back.
-      toggleDone: () => runStep($, async () => {
+      toggleDone: () => press(async () => {
         const shown = await update($, showDone, current => !current)
         keepFocus($, 'toggle-done')
         await $.store.set(SHOW_DONE_KEY, shown)
@@ -751,9 +762,9 @@ export const register: Register = on => {
     return bandView({ Box, Button, Text, Link }, data, {
       toggleScope: () => runStep($, async () => {
         await update($, bandScope, current => current === 'self' ? 'all' : 'self')
-      }),
+      }, 'press'),
       open: () => void $.ui.open({ id: PANE, title: PANE_TITLE }),
-      close: ids => runStep($, () => setBandClosed($, ids)),
+      close: ids => runStep($, () => setBandClosed($, ids), 'press'),
     })
   })
 }

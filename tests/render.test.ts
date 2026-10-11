@@ -202,6 +202,24 @@ describe('reply', () => {
     await pane.unmount()
   })
 
+  test('a box read back without the trailing newlines, as on Desktop, is no failure; one typed into is', async ($, on) => {
+    const w = world(on, NO_PR, [fileOf(SELF, { items: [{ id: 'q1', kind: 'question', text: 'What is the budget?' }] })])
+    await start($, w)
+    const pane = await mountPane($)
+    w.prompt.dropsTrailingNewlines = true
+    w.prompt.draft = 'Also check the logs'
+    await pane.press({ key: `reply:${SELF}:q1` })
+    await w.clock.settle()
+    expect(w.prompt.draft).toBe('Also check the logs\n> Question: What is the budget?')
+    expect(await pane.find({ type: 'Text', text: /^Failed:/ })).toBeUndefined()
+
+    w.prompt.typedDuringFill = 'x'
+    await pane.press({ key: `reply:${SELF}:q1` })
+    await w.clock.settle()
+    expect(await pane.find({ type: 'Text', text: 'Failed: the prompt box changed while the quote was put in; check the draft' })).toBeDefined()
+    await pane.unmount()
+  })
+
   for (const surface of ['desktop', 'terminal'] as const) {
     test(`a question's option button sends the quoted question and the option, and marks it done (${surface})`, async ($, on) => {
       const w = world(on, NO_PR, [fileOf(SELF, { items: [{ id: 'q1', kind: 'question', text: 'Merge now?', options: ['Yes', 'No'] }] })])

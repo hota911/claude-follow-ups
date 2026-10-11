@@ -43,8 +43,15 @@ export function world(on: On, gh: Gh, seed: PendingItemsSessionFile[] = [], env:
   const opened: string[][] = []
   const removed: string[] = []
   const panesOpened: string[] = []
-  /** The prompt box's text, the mode of every fill in order, and what every read waits on first. */
-  const prompt = { draft: '', modes: [] as (string | undefined)[], readGate: Promise.resolve() }
+  /**
+   * The prompt box's text, the mode of every fill in order, and what every read waits on first.
+   * `dropsTrailingNewlines` keeps a fill without its trailing newlines, as the Desktop surface
+   * reads it back; `typedDuringFill` is text the person types right after the next fill.
+   */
+  const prompt = {
+    draft: '', modes: [] as (string | undefined)[], readGate: Promise.resolve(),
+    dropsTrailingNewlines: false, typedDuringFill: '',
+  }
   /** Every prompt that entered the session, in order. */
   const submitted: string[] = []
   /** What every submit waits on first (a busy session), and whether it then fails. */
@@ -68,7 +75,9 @@ export function world(on: On, gh: Gh, seed: PendingItemsSessionFile[] = [], env:
   })
   on('prompt.fill', ($, e) => {
     prompt.modes.push(e.mode)
-    prompt.draft = e.mode === 'append' ? prompt.draft + e.text : e.text
+    const text = prompt.dropsTrailingNewlines ? e.text.replace(/\n+$/, '') : e.text
+    prompt.draft = (e.mode === 'append' ? prompt.draft + text : text) + prompt.typedDuringFill
+    prompt.typedDuringFill = ''
     return { isFilled: true }
   })
   const clock = mock.clock(on, { now: NOW })
@@ -165,6 +174,10 @@ export function world(on: On, gh: Gh, seed: PendingItemsSessionFile[] = [], env:
     /** Puts a session file's raw text, as another (older) writer left it. */
     putFile: (id: string, text: string) => {
       disk.set(`${DIR}/${id}.json`, text)
+    },
+    /** Removes a session file, as the person deleting it by hand. */
+    removeFile: (id: string) => {
+      disk.delete(`${DIR}/${id}.json`)
     },
     /** A session file's raw text on disk. */
     raw: (id: string) => disk.get(`${DIR}/${id}.json`),

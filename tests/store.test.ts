@@ -120,6 +120,36 @@ describe('unreadable session files', () => {
     expect(w.removed).toEqual([])
   })
 
+  test('a skipped file stays named beside a press\'s failure, until a load finds it gone', async ($, on) => {
+    const w = world(on, NO_PR, [fileOf(SELF, { items: [item] })])
+    w.putFile('session-b', '{')
+    await start($, w)
+    const pane = await mountPane($)
+    const skipped = 'Failed: session-b.json is not a valid follow-ups session file (not JSON); it was left unchanged'
+    expect(await pane.find({ type: 'Text', text: skipped })).toBeDefined()
+
+    // A failed press adds its own line; the skipped file stays named.
+    w.clipboard.works = false
+    await pane.press({ key: `copy:${SELF}:q` })
+    await w.clock.settle()
+    expect(await pane.find({ type: 'Text', text: 'Failed: the clipboard did not take the text (no-clipboard)' })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: skipped })).toBeDefined()
+
+    // A press that succeeds clears the earlier press's failure, not the skipped file.
+    w.clipboard.works = true
+    await pane.press({ key: `copy:${SELF}:q` })
+    await w.clock.settle()
+    expect(await pane.find({ type: 'Text', text: /the clipboard did not take/ })).toBeUndefined()
+    expect(await pane.find({ type: 'Text', text: skipped })).toBeDefined()
+
+    // Once the file is gone, the next load (here the 30-second one) clears its line.
+    w.removeFile('session-b')
+    await w.clock.advance(30 * 1000)
+    await w.clock.settle()
+    expect(await pane.find({ type: 'Text', text: /^Failed:/ })).toBeUndefined()
+    await pane.unmount()
+  })
+
   test('text read from a file is drawn without control characters', async ($, on) => {
     const w = world(on, NO_PR)
     w.putFile(SELF, JSON.stringify(fileOf(SELF, { title: 'Ti\u001b[2Jtle', items: [{ ...item, text: 'Which\u001b]0;pwned\u0007 venue?' }] })))
