@@ -37,7 +37,7 @@ Claude when to call it. Each call replaces the session's whole list:
 
 A call over a limit is refused with the reason, never cut: at most 50 items; `id` 64
 characters, `text` 500, `title` 120, `owner` 60, `activity` 120, `url` 2000. `url` must be an
-`https:` URL. Control characters and terminal escape sequences are removed from the text
+`https:` or `http:` URL (other schemes such as `file:` are refused). Control characters and terminal escape sequences are removed from the text
 (newlines and tabs are kept).
 
 Item kinds:

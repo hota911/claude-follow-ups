@@ -44,7 +44,7 @@ export const INPUT_DESCRIPTIONS = {
   id: 'Stable short slug chosen by you',
   text: 'Short, self-contained text in the user\'s language',
   owner: 'Who does it, mainly for next_step',
-  url: 'An https: link for the item, if any',
+  url: 'An https: (or http:) link for the item, if any',
   options: 'Only for a question that a short choice fully answers (e.g. Yes / No): 2-4 short answers, '
     + 'each shown as a button that sends it as the user\'s reply. Omit for open questions',
 } as const
@@ -104,7 +104,7 @@ export const INPUT_ERRORS = {
   kind: (index: number, kinds: readonly string[]) => `items[${index}].kind must be one of ${kinds.join(', ')}`,
   text: (index: number) => `items[${index}].text must be a non-empty string`,
   ownerUrl: (index: number) => `items[${index}].owner and url must be strings`,
-  url: (index: number) => `items[${index}].url must be an https: URL`,
+  url: (index: number) => `items[${index}].url must be an http: or https: URL`,
   tooLong: (field: string, max: number) => `${field} must be at most ${max} characters`,
   tooMany: (max: number) => `items must have at most ${max} entries`,
   options: (index: number, min: number, max: number, maxLength: number) =>
