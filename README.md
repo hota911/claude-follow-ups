@@ -77,7 +77,7 @@ Buttons on a row:
 | ↺ | Undoes ✓ (on a done row) |
 | ⧉ | Copies the item's first backtick code span, or its whole text when it has none, and shows `Copied` |
 | ↩ | Quotes the item, led by its kind (`> Question: ...`), into this session's prompt box, keeping your draft |
-| Option buttons | On this session's questions with `options`: sends the quoted question and the option as your prompt at once (after the current turn, if one is running). The question stays listed until Claude removes it |
+| Option buttons | On this session's questions with `options`: marks the question done (as ✓, so Show done and ↺ bring it back) and sends the quoted question and the option as your prompt (after the current turn, if one is running). The buttons go with the question, so a second press cannot send the answer again. If the send fails, the question is put back |
 | ↗ | Opens another session in the Claude Desktop app (`claude://claude.ai/epitaxy/<id>`). In By session it sits in the session header, in By kind on each row |
 | Resume | For another session started from the CLI (no Desktop id): puts `/resume <sessionId>` in the prompt box for you to send. Refused while the box holds a draft |
 
@@ -123,7 +123,7 @@ a list over this session's own such file. Fix or remove the file to recover.
 | Session end (`session.end`) | State Ended | Its own file | Nothing |
 | ✓ / ↺ | Moves the item between `items` and `done` (with its id in `dismissed`). ✓ on an item, not a PR, also adds its id to `notify` | The owning session's file, which may be another session's | That session's model, at its next prompt submit |
 | ↩ | Reads the prompt box and refills it with the draft and the quote | None | Only what you send |
-| Option button | Submits the quoted question and the option as your prompt | None | That prompt |
+| Option button | Moves the question to `done` as ✓ does, but does not add its id to `notify`, then submits the quoted question and the option as your prompt. A failed submit moves it back | Its own file | That prompt |
 | ⧉ | Copies to the clipboard | None | Nothing |
 | ↗ / Resume | Runs `open claude://claude.ai/epitaxy/<hostSessionId>` / fills `/resume <sessionId>` | None | Nothing |
 | Archived-session cleanup (on every load) | For another session's file that has a Desktop id, reads the Desktop app's record; if it says `isArchived: true`, reads the session file again and, if it still names that Desktop session, deletes it with `rm -f`. Its own file is never deleted | Reads `~/Library/Application Support/Claude/claude-code-sessions/<account>/<org>/<hostSessionId>.json`; deletes `sessions/<id>.json` | Nothing |
@@ -146,6 +146,7 @@ sequenceDiagram
     U->>P: ✓
     P->>F: move to done, add id to notify
     U->>P: ↩ or an option button
+    P->>F: move the question to done (option button)
     P->>B: quote (↩) / submit quote and option
     B->>M: prompt, plus "[Follow-ups] ... marked done" context
 ```
@@ -190,7 +191,7 @@ that calls `$` lives in `hooks/register.tsx`, and the other modules hold only co
 | `hooks/register.tsx` | Hooks, state atoms, and every function that calls `$` |
 | `hooks/render.tsx` | Drawing the pane and the band |
 | `hooks/rows.ts` | The row model: order, groups, focus after ✓, the ids the band records |
-| `hooks/items.ts` | How the tool, ✓, ↺ and the done notice change a session file |
+| `hooks/items.ts` | How the tool, ✓, ↺, option buttons and the done notice change a session file |
 | `hooks/prs.ts` | `gh pr view` arguments, reading its result, applying PR checks |
 | `hooks/state.ts` | Which state each end of a turn leaves |
 | `hooks/store.ts` | Session file locations and the queue that serializes reads and writes |

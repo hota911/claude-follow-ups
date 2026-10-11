@@ -244,6 +244,17 @@ describe('done notice', () => {
     expect(submitted.context ?? []).toEqual([])
   })
 
+  test('an option button marks its question done with no notice: the answer already told the model', async ($, on) => {
+    const w = world(on, NO_PR, [fileOf(SELF, { items: [{ id: 'q1', kind: 'question', text: 'Merge now?', options: ['Yes', 'No'] }] })])
+    await start($, w)
+    const pane = await mountPane($)
+    await pane.press({ key: `answer:${SELF}:q1:0` })
+    await w.clock.settle()
+    await pane.unmount()
+    expect(w.file(SELF)?.notify).toBeUndefined()
+    expect((await submit($, 'Next task')).context ?? []).toEqual([])
+  })
+
   test('✓ pressed in another session\'s pane is stored in the owner\'s file and told at its next prompt', async ($, on) => {
     const w = world(on, NO_PR, [
       fileOf(SELF, { items: [{ id: 'q1', kind: 'question', text: 'What is the budget?' }] }),

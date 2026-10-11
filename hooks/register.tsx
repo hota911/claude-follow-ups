@@ -7,7 +7,7 @@ import type { EngineInterface, Register, RenderSurface } from 'claude-code'
 import type { PendingItem, PendingItemsLoad, PendingItemsPr, PendingItemsSessionFile, PendingItemsSessionState, PendingItemsView } from '../types'
 import { answerOf, copyTextOf, hostLinkOf, quoteOf, replyFill, withPromptBox } from './actions'
 import { BAND_CLOSED_KEY, errorLine, PANE, PANE_TITLE, PLUGIN, SHOW_DONE_KEY, TOOL, TOOL_FULL } from './common'
-import { applySet, dismissed, doneNoticeOf, type SetOutcome, undone, withNotify } from './items'
+import { answered, applySet, dismissed, doneNoticeOf, type SetOutcome, undone, withNotify } from './items'
 import {
   basename,
   createdPrUrls,
@@ -299,7 +299,7 @@ async function setBandClosed($: Engine, closed: string[] | null): Promise<void> 
 }
 
 /**
- * A press on ✓ or ↺: applies `change` to the session's entry in `files` at once, so the
+ * A press on ✓, ↺ or a choice: applies `change` to the session's entry in `files` at once, so the
  * drawing follows the first press, keeps the focus on the pressed control (`focusKey`), or on
  * a neighbour when the change takes that control out of the drawing (see focusAfter), then
  * applies the change to the file on disk and reloads.
@@ -497,12 +497,29 @@ async function replyTo($: Engine, item: PendingItem): Promise<void> {
 }
 
 /**
- * A choice button: sends the quoted question and the chosen answer as the person's own prompt.
- * The engine runs it once the session is idle, so the step waits for the turn running now, if
- * any; it runs detached from every hook, so no hook awaits its own submit. The item stays listed.
+ * A choice button: marks the question done in this session's file (as ✓, but with no done
+ * notice: the answer tells the model), then sends the quoted question and the chosen answer as
+ * the person's own prompt. Done first, so the buttons go at once and a second press cannot queue
+ * the answer again. The engine runs the submit once the session is idle, so the step waits for
+ * the turn running now, if any; it runs detached from every hook, so no hook awaits its own
+ * submit. A failed submit puts the question back before the error surfaces. Only the press that
+ * finds the question still listed sends: two presses before the redraw still send one answer.
  */
-async function answerWith($: Engine, item: PendingItem, option: string): Promise<void> {
-  await $.prompt.submit({ text: answerOf(item, option), asUser: true })
+async function answerWith($: Engine, item: PendingItem, option: string, act: string): Promise<void> {
+  const sessionId = await $.session.id()
+  let claimed = false
+  await changeSession($, sessionId, act, (file, now) => {
+    if (!file.items.some(candidate => candidate.id === item.id)) return file
+    claimed = true
+    return answered(file, item.id, now)
+  })
+  if (!claimed) return
+  try {
+    await $.prompt.submit({ text: answerOf(item, option), asUser: true })
+  } catch (err) {
+    await changeSession($, sessionId, act, file => undone(file, item.id))
+    throw err
+  }
 }
 
 /** The copy button: the pane's text cannot be selected on desktop, so this puts it on the clipboard. */
@@ -702,7 +719,7 @@ export const register: Register = on => {
       undo: (sessionId, id, act) => runStep($, () => changeSession($, sessionId, act, file => undone(file, id))),
       copy: (item, surface) => runStep($, () => copyItem($, item, surface)),
       reply: item => runStep($, () => replyTo($, item)),
-      answer: (item, option) => runStep($, () => answerWith($, item, option)),
+      answer: (item, option, act) => runStep($, () => answerWith($, item, option, act)),
       open: host => runStep($, () => openHostSession($, host)),
       resume: sessionId => runStep($, () => fillResume($, sessionId)),
       // A view switch also reloads, so archived sessions' files are cleared then too.

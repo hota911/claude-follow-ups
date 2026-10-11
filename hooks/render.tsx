@@ -57,14 +57,14 @@ const STATE_COLOR: Record<Exclude<PendingItemsSessionState, 'ended'>, Color> = {
 
 export type ViewElements = Pick<Elements['terminal'], 'Box' | 'Text' | 'Button' | 'Link'>
 
-/** What a row's buttons do; each starts a background step. `act` is the pressed ✓/↺ control's key. */
+/** What a row's buttons do; each starts a background step. `act` is the row's ✓/↺ control's key. */
 export type RowHandlers = {
   done: (sessionId: string, id: string, act: string) => void
   undo: (sessionId: string, id: string, act: string) => void
   copy: (item: PendingItem, surface: RenderSurface) => void
   reply: (item: PendingItem) => void
-  /** A question's choice button: sends `option` as this session's answer. */
-  answer: (item: PendingItem, option: string) => void
+  /** A question's choice button: marks the question done and sends `option` as this session's answer. */
+  answer: (item: PendingItem, option: string, act: string) => void
   open: (hostSessionId: string) => void
   resume: (sessionId: string) => void
 }
@@ -124,7 +124,7 @@ function rowView(els: ViewElements, on: RowHandlers, self: string | null, row: R
     }
   }
   // A question of this session with options gets one button per option under its text; a press
-  // sends the option as the answer at once.
+  // marks the question done and sends the option as the answer.
   const question = !row.isDone && item !== undefined && item.kind === 'question' && sessionId === self ? item : undefined
   const choices = question?.options === undefined
     ? null
@@ -132,7 +132,7 @@ function rowView(els: ViewElements, on: RowHandlers, self: string | null, row: R
         <Box key="options" flexDirection="row" flexWrap="wrap">
           {question.options.flatMap((option, index) => [
             ...(index === 0 ? [] : [<Text key={`gap-answer:${index}`}> </Text>]),
-            <Button key={`answer:${sessionId}:${id}:${index}`} label={option} variant="secondary" onPress={() => on.answer(question, option)} />,
+            <Button key={`answer:${sessionId}:${id}:${index}`} label={option} variant="secondary" onPress={() => on.answer(question, option, act)} />,
           ])}
         </Box>
       )
