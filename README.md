@@ -7,20 +7,24 @@ own actions, unverified points and next steps) through the `pending_items_set` t
 shows these, together with each session's open PRs, for all your sessions in a pane and in a
 one-line band above the prompt.
 
-Version 0.1.1.
+Version 0.1.2.
 
 ## Install
 
 In Claude Code in a terminal:
 
 ```
-/plugin install follow-ups --marketplace hota911/claude-follow-ups
+/plugin install follow-ups --marketplace hota911/follow-ups
 ```
 
-Answer `y` when asked to add the marketplace (`github:hota911/claude-follow-ups`) and choose a
+Answer `y` when asked to add the marketplace (`github:hota911/follow-ups`) and choose a
 scope. The command is available in the terminal only; the Code tab of the Claude Desktop app
 does not offer it. A plugin installed at user scope from a terminal also loads in local Desktop
 sessions.
+
+The repository was named `claude-follow-ups` and its marketplace `claude-follow-ups` before
+0.1.2. If you installed `follow-ups@claude-follow-ups`, uninstall it, remove that marketplace,
+and install again with the command above; session files are kept.
 
 ## Usage
 
