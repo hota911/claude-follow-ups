@@ -113,7 +113,7 @@ PR は Claude が報告するのではなく、プラグインが追跡する。
 | 選択肢ボタン | 引用した質問と選択肢を本人のプロンプトとして送る | なし | そのプロンプト |
 | ⧉ | クリップボードにコピーする | なし | なし |
 | ↗ / Resume | `open claude://claude.ai/epitaxy/<hostSessionId>` を実行する / `/resume <sessionId>` を入力欄に入れる | なし | なし |
-| アーカイブ済みセッションの掃除（読み込みのたび） | Desktop の id を持つ別のセッションのファイルについて、Desktop アプリの記録を読み、`isArchived: true` ならそのセッションファイルを `rm -f` で消す。自分のファイルは消さない | `~/Library/Application Support/Claude/claude-code-sessions/<account>/<org>/<hostSessionId>.json` を読む。`sessions/<id>.json` を消す | なし |
+| アーカイブ済みセッションの掃除（読み込みのたび） | Desktop の id を持つ別のセッションのファイルについて、Desktop アプリの記録を読み、`isArchived: true` ならそのセッションファイルを読み直し、まだ同じ Desktop のセッションを指していれば `rm -f` で消す。自分のファイルは消さない | `~/Library/Application Support/Claude/claude-code-sessions/<account>/<org>/<hostSessionId>.json` を読む。`sessions/<id>.json` を消す | なし |
 
 Show done の切り替えと帯を閉じた状態は、プラグインのストア（`$.store`）に保存する。
 

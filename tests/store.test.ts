@@ -329,6 +329,16 @@ describe('archived Desktop sessions', () => {
     await pane.unmount()
   })
 
+  test('a file rewritten for another Desktop session between the archive check and the delete is kept', async ($, on) => {
+    const w = world(on, NO_PR, [fileOf('session-b', { hostSessionId: 'local_b', items: [item] })])
+    w.putRecord('local_b', archived)
+    const rewritten = JSON.stringify(fileOf('session-b', { hostSessionId: 'local_b2', items: [item] }))
+    w.afterRecordRead('local_b', () => w.putFile('session-b', rewritten))
+    await start($, w)
+    expect(w.removed).toEqual([])
+    expect(w.raw('session-b')).toBe(rewritten)
+  })
+
   test('a file whose Desktop session is not archived, or has no readable record, is kept', async ($, on) => {
     const w = world(on, NO_PR, [
       fileOf('session-b', { hostSessionId: 'local_b', items: [item] }),

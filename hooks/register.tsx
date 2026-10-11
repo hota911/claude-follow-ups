@@ -168,6 +168,17 @@ async function removeFile($: Engine, path: string): Promise<void> {
   if (ran.exitCode !== 0) throw new Error(firstLine(ran.stderr) || `rm exited with ${ran.exitCode}`)
 }
 
+/**
+ * Deletes an archived session's file, read again first, inside withFile: only while it still
+ * parses and names the same Desktop session, so a file rewritten since the archive check is kept.
+ */
+async function removeArchived($: Engine, path: string, fileName: string, hostSessionId: string): Promise<void> {
+  if (!(await $.fs.exists(path))) return
+  const latest = parseSessionFile(await $.fs.read(path), fileName)
+  if ('error' in latest || latest.hostSessionId !== hostSessionId) return
+  await removeFile($, path)
+}
+
 async function fileOf($: Engine, sessionId: string): Promise<string> {
   return sessionPathOf(await sessionsDir($), sessionId)
 }
@@ -228,7 +239,7 @@ async function loadFiles($: Engine): Promise<void> {
         if (host !== undefined && self !== null && parsed.sessionId !== self) {
           hostDirs ??= await hostRecordDirs($)
           if (await isHostArchived($, hostDirs, host)) {
-            await withFile(() => removeFile($, path))
+            await withFile(() => removeArchived($, path, fileName, host))
             continue
           }
         }

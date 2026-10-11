@@ -116,7 +116,7 @@ session reads all of them, so each pane shows every session. All of the followin
 | Option button | Submits the quoted question and the option as your prompt | None | That prompt |
 | ⧉ | Copies to the clipboard | None | Nothing |
 | ↗ / Resume | Runs `open claude://claude.ai/epitaxy/<hostSessionId>` / fills `/resume <sessionId>` | None | Nothing |
-| Archived-session cleanup (on every load) | For another session's file that has a Desktop id, reads the Desktop app's record; if it says `isArchived: true`, deletes the session file with `rm -f`. Its own file is never deleted | Reads `~/Library/Application Support/Claude/claude-code-sessions/<account>/<org>/<hostSessionId>.json`; deletes `sessions/<id>.json` | Nothing |
+| Archived-session cleanup (on every load) | For another session's file that has a Desktop id, reads the Desktop app's record; if it says `isArchived: true`, reads the session file again and, if it still names that Desktop session, deletes it with `rm -f`. Its own file is never deleted | Reads `~/Library/Application Support/Claude/claude-code-sessions/<account>/<org>/<hostSessionId>.json`; deletes `sessions/<id>.json` | Nothing |
 
 The Show done toggle and the band's closed state are kept in the plugin's store (`$.store`).
 
