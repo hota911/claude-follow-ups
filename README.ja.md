@@ -6,20 +6,24 @@ Claude Code のプラグインである。Claude は、各セッションが本�
 未検証の点、次の手順）を `pending_items_set` ツールで報告する。プラグインはそれを各セッションの
 未マージの PR とあわせて、全セッション分、Pane とプロンプト上の1行の帯に表示する。
 
-版は 0.1.1 である。
+版は 0.1.2 である。
 
 ## インストール
 
 ターミナルの Claude Code で次を実行する。
 
 ```
-/plugin install follow-ups --marketplace hota911/claude-follow-ups
+/plugin install follow-ups --marketplace hota911/follow-ups
 ```
 
-マーケットプレイス（`github:hota911/claude-follow-ups`）の追加を尋ねられたら `y` で答え、スコープを
+マーケットプレイス（`github:hota911/follow-ups`）の追加を尋ねられたら `y` で答え、スコープを
 選ぶ。このコマンドはターミナル専用であり、Claude Desktop アプリの Code タブでは使えない。
 ターミナルからユーザースコープでインストールしたプラグインは、ローカルの Desktop セッションでも
 読み込まれる。
+
+0.1.2 より前は、リポジトリ名もマーケットプレイス名も `claude-follow-ups` だった。
+`follow-ups@claude-follow-ups` をインストールしている場合は、それをアンインストールし、その
+マーケットプレイスを削除してから、上のコマンドでインストールし直す。セッションファイルはそのまま残る。
 
 ## 使い方
 
@@ -220,9 +224,20 @@ claude plugin validate .
 
 ### 開発用コピーで試す
 
-変更したコピーをインストール済みの版と並べて動かすには、コピーの名前を `follow-ups-dev` に変え、
-そのセッションの dev-mods フォルダ `~/.claude/dev-mods/<session>/follow-ups-dev/` に置く。名前を
-変えないと、インストール済みの版が Pane を描く。次の箇所の `follow-ups` を `follow-ups-dev` に置き換える。
+変更したコピーをインストール済みの版と並べて動かすには、読み込ませたい Claude Code のセッションの中で、
+チェックアウト（どのワークツリー、ブランチでもよい）から次を実行する。
+
+```
+scripts/dev-copy.sh            # セッション ID は $CLAUDE_CODE_SESSION_ID から取る
+scripts/dev-copy.sh <session>  # セッションを指定する場合
+```
+
+このスクリプトは、作業ツリーの `.claude-plugin/plugin.json`、`hooks/`、`types/` を、未コミットの変更も
+含めて、そのセッションの dev-mods フォルダ `~/.claude/dev-mods/<session>/follow-ups-dev/` に前回の
+コピーと置き換えてコピーする（`FOLLOW_UPS_DEV_MODS` で `~/.claude/dev-mods` を変えられる）。そのうえで
+コピーの名前を `follow-ups-dev` に変え、古い名前が残っていないことを確かめ、`claude plugin validate` で
+検証し、コピーのパスを出力する。名前を変えないと、インストール済みの版が Pane を描く。スクリプトは
+次の箇所の `follow-ups` を `follow-ups-dev` に置き換える。
 
 - `.claude-plugin/plugin.json` の `name`（フォルダ名と一致させる）。
 - `hooks/common.ts` の `PLUGIN` と `PANE`（`PANE_TITLE` は `Follow-ups (dev)` にする）。
@@ -230,8 +245,9 @@ claude plugin validate .
   `mcp__follow-ups__pending_items_set` を含む matcher。
 - `types/index.d.ts` のモジュール拡張のキー。
 
-セッションファイルの場所は変えない。コピーが同じファイルを読み書きするためである。置いたあとは
-`claude plugin validate <コピーのフォルダ>` で検証する。
+セッションファイルの場所は変えない。コピーが同じファイルを読み書きするためである。ソースが変わって
+これらの箇所のどれかが一致しなくなった場合、スクリプトはその箇所を示して止まる。そのときはソースに
+合わせてスクリプトを直す。
 
 ## ライセンス
 

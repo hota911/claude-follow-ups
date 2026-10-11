@@ -7,20 +7,24 @@ own actions, unverified points and next steps) through the `pending_items_set` t
 shows these, together with each session's open PRs, for all your sessions in a pane and in a
 one-line band above the prompt.
 
-Version 0.1.1.
+Version 0.1.2.
 
 ## Install
 
 In Claude Code in a terminal:
 
 ```
-/plugin install follow-ups --marketplace hota911/claude-follow-ups
+/plugin install follow-ups --marketplace hota911/follow-ups
 ```
 
-Answer `y` when asked to add the marketplace (`github:hota911/claude-follow-ups`) and choose a
+Answer `y` when asked to add the marketplace (`github:hota911/follow-ups`) and choose a
 scope. The command is available in the terminal only; the Code tab of the Claude Desktop app
 does not offer it. A plugin installed at user scope from a terminal also loads in local Desktop
 sessions.
+
+The repository was named `claude-follow-ups` and its marketplace `claude-follow-ups` before
+0.1.2. If you installed `follow-ups@claude-follow-ups`, uninstall it, remove that marketplace,
+and install again with the command above; session files are kept.
 
 ## Usage
 
@@ -224,9 +228,20 @@ pinned there.
 
 ### Trying a development copy
 
-To run a modified copy next to the installed version, rename the copy to `follow-ups-dev` and
-put it in the session's dev-mods folder, `~/.claude/dev-mods/<session>/follow-ups-dev/`.
-Without the rename, the installed version draws the pane. Replace `follow-ups` with
+To run a modified copy next to the installed version, run this from the checkout (any worktree
+or branch) inside the Claude Code session that should load it:
+
+```
+scripts/dev-copy.sh            # session id from $CLAUDE_CODE_SESSION_ID
+scripts/dev-copy.sh <session>  # or name the session
+```
+
+It copies the working tree's `.claude-plugin/plugin.json`, `hooks/` and `types/`, uncommitted
+edits included, into the session's dev-mods folder,
+`~/.claude/dev-mods/<session>/follow-ups-dev/` (`FOLLOW_UPS_DEV_MODS` overrides
+`~/.claude/dev-mods`), replacing the previous copy. It then renames the copy to `follow-ups-dev`,
+checks that no old name is left, runs `claude plugin validate` on it and prints its path. Without
+the rename, the installed version draws the pane. The script replaces `follow-ups` with
 `follow-ups-dev` in:
 
 - `name` in `.claude-plugin/plugin.json` (it must match the folder name).
@@ -235,8 +250,9 @@ Without the rename, the installed version draws the pane. Replace `follow-ups` w
   `requestId`, and the matcher with the tool name `mcp__follow-ups__pending_items_set`.
 - The module augmentation key in `types/index.d.ts`.
 
-Keep the session file location, so the copy reads and writes the same files. Then run
-`claude plugin validate <copy folder>`.
+It keeps the session file location, so the copy reads and writes the same files. If the
+source changed so that one of these places no longer matches, the script stops and names it;
+update the script with the source.
 
 ## License
 

@@ -1,5 +1,5 @@
 {
-  "name": "claude-follow-ups",
+  "name": "follow-ups",
   "owner": { "name": "Hiroyuki Ota" },
   "description": "The follow-ups plugin for Claude Code: what each session is waiting on you for, in a pane and a band above the prompt",
   "plugins": [
