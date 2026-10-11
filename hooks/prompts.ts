@@ -8,7 +8,7 @@
  *   items change.
  * - TOOL_DESCRIPTION and INPUT_DESCRIPTIONS: the tool's description and its input schema,
  *   registered at session start.
- * - storedResult, hiddenResult, subagentDeny, inputDeny, storeFailedDeny and INPUT_ERRORS: the
+ * - storedResult, hiddenResult, subagentDeny, inputDeny, storeFailedDeny, invalidFileDeny and INPUT_ERRORS: the
  *   tool result, or the deny reason, of one tool call.
  * - COMMAND_RESULT: the answer to /follow-ups, read by the model when it runs the command.
  * - doneNotice: context beside the prompt at prompt submit (never shown in the transcript).
@@ -44,6 +44,7 @@ export const INPUT_DESCRIPTIONS = {
   id: 'Stable short slug chosen by you',
   text: 'Short, self-contained text in the user\'s language',
   owner: 'Who does it, mainly for next_step',
+  url: 'An https: link for the item, if any',
   options: 'Only for a question that a short choice fully answers (e.g. Yes / No): 2-4 short answers, '
     + 'each shown as a button that sends it as the user\'s reply. Omit for open questions',
 } as const
@@ -87,6 +88,11 @@ export function storeFailedDeny(tool: string): string {
   return `${tool} failed to store the list.`
 }
 
+/** The deny reason when this session's file exists but is not valid; `reason` names the file, never its contents. */
+export function invalidFileDeny(tool: string, reason: string): string {
+  return `${tool} did not store the list: ${reason}. Tell the user; calling again fails until they fix or remove the file.`
+}
+
 /** Why the tool's input was refused, one per check. */
 export const INPUT_ERRORS = {
   title: 'title must be a string',
@@ -98,6 +104,9 @@ export const INPUT_ERRORS = {
   kind: (index: number, kinds: readonly string[]) => `items[${index}].kind must be one of ${kinds.join(', ')}`,
   text: (index: number) => `items[${index}].text must be a non-empty string`,
   ownerUrl: (index: number) => `items[${index}].owner and url must be strings`,
+  url: (index: number) => `items[${index}].url must be an https: URL`,
+  tooLong: (field: string, max: number) => `${field} must be at most ${max} characters`,
+  tooMany: (max: number) => `items must have at most ${max} entries`,
   options: (index: number, min: number, max: number, maxLength: number) =>
     `items[${index}].options is only for kind question, and must be ${min}-${max} distinct one-line strings of at most ${maxLength} characters`,
 } as const

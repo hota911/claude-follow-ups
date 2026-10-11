@@ -2,7 +2,7 @@
 import { describe, expect, test, type Engine } from 'claude-code/testing'
 
 import { parseSetInput } from '../hooks/parse'
-import { DIR, SELF, TOOL, NOW, NO_PR, fileOf, world, start, mountPane } from './world'
+import { DIR, SELF, TOOL, NOW, NO_PR, fileOf, prJson, world, start, mountPane } from './world'
 
 describe('parse', () => {
   test('refuses an unknown kind and duplicated ids', () => {
@@ -20,6 +20,113 @@ describe('parse', () => {
       expect(question(bad)).toEqual(refused)
     }
     expect(parseSetInput({ title: 't', items: [{ id: 'u', kind: 'user_action', text: 'Send it', options: ['Done', 'Later'] }] })).toEqual(refused)
+  })
+
+  test('strips terminal escape sequences and control characters, keeping newlines', () => {
+    expect(parseSetInput({
+      title: 'T\u001b[31mitle\u001b[0m',
+      activity: 'Run\u0007ning',
+      items: [{ id: 'a', kind: 'question', text: 'Pick\u001b]8;;https://x.test\u0007 one\r\n second\u009b', owner: 'yo\u0000u', options: ['Y\u001bes', 'No\u007f'] }],
+    })).toEqual({
+      title: 'Title',
+      activity: 'Running',
+      items: [{ id: 'a', kind: 'question', text: 'Pick one\n second', owner: 'you', options: ['Yes', 'No'] }],
+    })
+    expect(parseSetInput({ title: 't', items: [{ id: 'a\u001b', kind: 'question', text: 'x' }] })).toEqual({ error: 'items[0].id must be a non-empty string' })
+  })
+
+  test('takes only an https: url on an item', () => {
+    const withUrl = (url: string) => parseSetInput({ title: 't', items: [{ id: 'a', kind: 'user_action', text: 'Read it', url }] })
+    expect(withUrl('https://example.com/docs?x=1#y')).toMatchObject({ items: [{ url: 'https://example.com/docs?x=1#y' }] })
+    for (const bad of ['http://example.com', 'javascript:alert(1)', 'file:///etc/passwd', 'https://', 'https://a b', 'HTTPS://example.com']) {
+      expect(withUrl(bad)).toEqual({ error: 'items[0].url must be an https: URL' })
+    }
+  })
+
+  test('refuses input over the size limits instead of cutting it', () => {
+    const item = { id: 'a', kind: 'question', text: 'x' }
+    const items = (count: number) => Array.from({ length: count }, (_, index) => ({ ...item, id: `i${index}` }))
+    expect(parseSetInput({ title: 't', items: items(50) })).toMatchObject({ items: expect.any(Array) })
+    expect(parseSetInput({ title: 't', items: items(51) })).toEqual({ error: 'items must have at most 50 entries' })
+    expect(parseSetInput({ title: 't'.repeat(121), items: [] })).toEqual({ error: 'title must be at most 120 characters' })
+    expect(parseSetInput({ title: 't', activity: 'a'.repeat(121), items: [] })).toEqual({ error: 'activity must be at most 120 characters' })
+    expect(parseSetInput({ title: 't', items: [{ ...item, id: 'i'.repeat(65) }] })).toEqual({ error: 'items[0].id must be at most 64 characters' })
+    expect(parseSetInput({ title: 't', items: [{ ...item, text: 'x'.repeat(500) }] })).toMatchObject({ items: [{ text: 'x'.repeat(500) }] })
+    expect(parseSetInput({ title: 't', items: [{ ...item, text: 'x'.repeat(501) }] })).toEqual({ error: 'items[0].text must be at most 500 characters' })
+    expect(parseSetInput({ title: 't', items: [{ ...item, owner: 'o'.repeat(61) }] })).toEqual({ error: 'items[0].owner must be at most 60 characters' })
+    expect(parseSetInput({ title: 't', items: [{ ...item, url: `https://example.com/${'p'.repeat(1981)}` }] }))
+      .toEqual({ error: 'items[0].url must be at most 2000 characters' })
+  })
+})
+
+describe('unreadable session files', () => {
+  const item = { id: 'q', kind: 'question' as const, text: 'Which venue?' }
+
+  test('this session\'s file that does not parse is never replaced: the tool is refused and says why', async ($, on) => {
+    const w = world(on, NO_PR)
+    w.putFile(SELF, '{ "sessionId": "session-a", "items": [')
+    await start($, w)
+    const ran = await $.tool.call({ tool: TOOL, title: 'Mine', items: [item] })
+    expect(ran.deny).toBe(`${TOOL} did not store the list: session-a.json is not a valid follow-ups session file (not JSON); it was left unchanged. `
+      + 'Tell the user; calling again fails until they fix or remove the file.')
+    expect(w.raw(SELF)).toBe('{ "sessionId": "session-a", "items": [')
+  })
+
+  test('a PR found for this session does not replace its file that does not parse; the pane names the file', async ($, on) => {
+    const stored = JSON.stringify({ ...fileOf(SELF, { items: [item] }), dismissed: 'not a list' })
+    const w = world(on, () => ({ exitCode: 0, stdout: prJson('OPEN'), stderr: '' }))
+    w.putFile(SELF, stored)
+    await start($, w)
+    expect(w.raw(SELF)).toBe(stored)
+    const pane = await mountPane($)
+    expect(await pane.find({ type: 'Text', text: 'Failed: session-a.json is not a valid follow-ups session file (dismissed must be strings); it was left unchanged' })).toBeDefined()
+    await pane.unmount()
+  })
+
+  test('another session\'s file that fails a check is skipped, named in the pane and left as it is', async ($, on) => {
+    const bad: Record<string, string> = {
+      'session-b': JSON.stringify(fileOf('session-c', { items: [item] })),
+      'session-d': JSON.stringify(fileOf('session-d', { hostSessionId: '../../x', items: [item] })),
+      'session-e': JSON.stringify(fileOf('session-e', { prs: [{ number: 1, title: 'x', url: '--repo=evil/x', isDraft: false }] })),
+      'session-f': JSON.stringify({ ...fileOf('session-f', { items: [item] }), cwd: 7 }),
+      'session-g': JSON.stringify(fileOf('session-g', { items: [{ ...item, url: 'http://example.com' }] })),
+      'session-h': JSON.stringify(fileOf('session-h', { items: Array.from({ length: 51 }, (_, index) => ({ ...item, id: `q${index}` })) })),
+    }
+    const gh: string[][] = []
+    const w = world(on, argv => {
+      gh.push([...argv])
+      return NO_PR(argv)
+    }, [fileOf('session-ok', { items: [{ ...item, text: 'Still shown' }] })])
+    for (const [id, text] of Object.entries(bad)) w.putFile(id, text)
+    await start($, w)
+    const pane = await mountPane($)
+    await pane.press({ key: 'refresh' })
+    await w.clock.settle()
+    await pane.press({ key: 'view-session' })
+    await w.clock.settle()
+    expect(await pane.find({ type: 'Text', text: 'Still shown' })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /Which venue/ })).toBeUndefined()
+    const failure = (await pane.find({ type: 'Text', text: /^Failed:/ }))?.text ?? ''
+    expect(failure).toContain('session-b.json is not a valid follow-ups session file (sessionId does not match the file name)')
+    expect(failure).toContain('session-d.json is not a valid follow-ups session file (hostSessionId is not a Desktop session id)')
+    expect(failure).toContain('session-e.json is not a valid follow-ups session file (a stored PR is not a github.com pull request)')
+    expect(failure).toContain('session-f.json is not a valid follow-ups session file (title, cwd and branch must be strings)')
+    expect(failure).toContain('session-g.json is not a valid follow-ups session file (items[0].url must be an https: URL)')
+    expect(failure).toContain('session-h.json is not a valid follow-ups session file (items must have at most 50 entries)')
+    await pane.unmount()
+    for (const [id, text] of Object.entries(bad)) expect(w.raw(id)).toBe(text)
+    expect(gh.flat()).not.toContain('--repo=evil/x')
+    expect(w.removed).toEqual([])
+  })
+
+  test('text read from a file is drawn without control characters', async ($, on) => {
+    const w = world(on, NO_PR)
+    w.putFile(SELF, JSON.stringify(fileOf(SELF, { title: 'Ti\u001b[2Jtle', items: [{ ...item, text: 'Which\u001b]0;pwned\u0007 venue?' }] })))
+    await start($, w)
+    const pane = await mountPane($)
+    expect(await pane.find({ type: 'Text', text: /^Which venue\?$/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /^Title/ })).toBeDefined()
+    await pane.unmount()
   })
 })
 

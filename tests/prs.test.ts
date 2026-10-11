@@ -26,6 +26,41 @@ describe('session PR', () => {
     await pane.unmount()
   })
 
+  test('a PR title and a gh error line are stored without control characters', async ($, on) => {
+    const titled = JSON.stringify({ number: 42, title: 'Add\u001b[31m the\u0007 logs', url: 'https://github.com/o/project/pull/42', state: 'OPEN', isDraft: false })
+    const w = world(on, () => ({ exitCode: 0, stdout: titled, stderr: '' }))
+    await start($, w)
+    expect(w.file(SELF)?.prs.map(p => p.title)).toEqual(['Add the logs'])
+
+    w.setGh(() => ({ exitCode: 4, stdout: '', stderr: '\u001b]0;x\u0007gh auth\u001b[1m login\u0000 required\n' }))
+    await $.turn.complete({ answer: 'done', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' })
+    await w.clock.settle()
+    expect(w.file(SELF)?.prError).toBe('gh auth login required')
+  })
+
+  test('a PR outside github.com is a failed lookup, not a stored PR', async ($, on) => {
+    const elsewhere = JSON.stringify({ number: 3, title: 'Elsewhere', url: 'https://git.example.com/o/p/pull/3', state: 'OPEN', isDraft: false })
+    const w = world(on, () => ({ exitCode: 0, stdout: elsewhere, stderr: '' }))
+    await start($, w)
+    expect(w.file(SELF)?.prs).toEqual([])
+    expect(w.file(SELF)?.prError).toBe('gh returned a PR that is not a github.com pull request')
+  })
+
+  test('a stored PR is looked up by its url after `--`', async ($, on) => {
+    const url = 'https://github.com/o/project/pull/42'
+    const calls: string[][] = []
+    const w = world(on, argv => {
+      calls.push([...argv])
+      return argv.includes(url) ? { exitCode: 0, stdout: prJson('OPEN'), stderr: '' } : NO_PR(argv)
+    }, [fileOf('session-b', { prs: [{ number: 42, title: 'Add the logs', url, isDraft: false }] })])
+    await start($, w)
+    const pane = await mountPane($)
+    await pane.press({ key: 'refresh' })
+    await w.clock.settle()
+    await pane.unmount()
+    expect(calls).toContainEqual(['gh', 'pr', 'view', '--json', 'number,title,url,state,isDraft', '--', url])
+  })
+
   test('no PR for the branch is not an error and writes nothing', async ($, on) => {
     const w = world(on, NO_PR)
     await start($, w)
@@ -41,7 +76,7 @@ describe('PRs the session creates', () => {
   const otherJson = (state: string) => JSON.stringify({ number: 7, title: 'Fix the skill', url: OTHER, state, isDraft: true })
   // gh answering the cwd branch's lookup with `branch`, and a lookup by url with that PR's state.
   const ghWith = (branch: Gh, states: Record<string, string>): Gh => argv => {
-    const url = argv[3] ?? ''
+    const url = argv.at(-1) ?? ''
     if (!url.startsWith('https://')) return branch(argv)
     if (url === OTHER) return { exitCode: 0, stdout: otherJson(states[OTHER] ?? 'OPEN'), stderr: '' }
     return { exitCode: 0, stdout: prJson(states[url] ?? 'OPEN'), stderr: '' }

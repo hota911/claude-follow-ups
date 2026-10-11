@@ -14,10 +14,22 @@ export function hostRecordsRootOf(home: string): string {
   return `${home}/Library/Application Support/Claude/claude-code-sessions`
 }
 
+// Session ids become file names; nothing that could leave the directory is accepted.
+export const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]+$/
+
 export function sessionPathOf(dir: string, sessionId: string): string {
-  // Session ids become file names; refuse anything that could leave the directory.
-  if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) throw new Error(`invalid session id: ${sessionId}`)
+  if (!SESSION_ID_PATTERN.test(sessionId)) throw new Error(`invalid session id: ${sessionId}`)
   return `${dir}/${sessionId}.json`
+}
+
+/**
+ * A session file that exists but does not parse as one (see parseSessionFile). It is never
+ * overwritten; the message names the file and the reason, never its contents.
+ */
+export class InvalidSessionFileError extends Error {
+  constructor(fileName: string, reason: string) {
+    super(`${fileName}.json is not a valid follow-ups session file (${reason}); it was left unchanged`)
+  }
 }
 
 // The tail of the queue withFile runs on; module scope, as it holds a promise, not state to draw.
