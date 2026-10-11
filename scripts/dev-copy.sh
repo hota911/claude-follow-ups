@@ -18,9 +18,9 @@ session_id="${1:-${CLAUDE_CODE_SESSION_ID:-}}"
 [[ "$session_id" =~ ^[A-Za-z0-9_-]+$ ]] || die "invalid session id '$session_id' (allowed: A-Z a-z 0-9 _ -)"
 
 # The source is the repository of the current directory, so any worktree or branch can be copied.
-src="$(git rev-parse --show-toplevel)" || die "run this inside a checkout of claude-follow-ups"
+src="$(git rev-parse --show-toplevel)" || die "run this inside a checkout of follow-ups"
 for path in .claude-plugin/plugin.json hooks types; do
-  [[ -e "$src/$path" ]] || die "$src/$path not found; is this a checkout of claude-follow-ups?"
+  [[ -e "$src/$path" ]] || die "$src/$path not found; is this a checkout of follow-ups?"
 done
 
 target="${FOLLOW_UPS_DEV_MODS:-$HOME/.claude/dev-mods}/$session_id/follow-ups-dev"

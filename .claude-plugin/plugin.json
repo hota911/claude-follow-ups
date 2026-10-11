@@ -1,6 +1,6 @@
 {
   "name": "follow-ups",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Shows, per session, the questions, user actions, unverified points and next steps Claude reported, plus the session's open PRs, in a pane and a band above the prompt",
   "author": { "name": "Hiroyuki Ota" },
   "types": "./types/index.d.ts"

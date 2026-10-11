@@ -6,20 +6,24 @@ Claude Code のプラグインである。Claude は、各セッションが本�
 未検証の点、次の手順）を `pending_items_set` ツールで報告する。プラグインはそれを各セッションの
 未マージの PR とあわせて、全セッション分、Pane とプロンプト上の1行の帯に表示する。
 
-版は 0.1.1 である。
+版は 0.1.2 である。
 
 ## インストール
 
 ターミナルの Claude Code で次を実行する。
 
 ```
-/plugin install follow-ups --marketplace hota911/claude-follow-ups
+/plugin install follow-ups --marketplace hota911/follow-ups
 ```
 
-マーケットプレイス（`github:hota911/claude-follow-ups`）の追加を尋ねられたら `y` で答え、スコープを
+マーケットプレイス（`github:hota911/follow-ups`）の追加を尋ねられたら `y` で答え、スコープを
 選ぶ。このコマンドはターミナル専用であり、Claude Desktop アプリの Code タブでは使えない。
 ターミナルからユーザースコープでインストールしたプラグインは、ローカルの Desktop セッションでも
 読み込まれる。
+
+0.1.2 より前は、リポジトリ名もマーケットプレイス名も `claude-follow-ups` だった。
+`follow-ups@claude-follow-ups` をインストールしている場合は、それをアンインストールし、その
+マーケットプレイスを削除してから、上のコマンドでインストールし直す。セッションファイルはそのまま残る。
 
 ## 使い方
 
