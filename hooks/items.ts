@@ -1,4 +1,4 @@
-// The items of a session file: what the tool's write, ✓, ↺ and the done notice change in it.
+// The items of a session file: what the tool's write, ✓, ↺, a choice and the done notice change in it.
 // Pure: register.tsx reads and writes the file around these.
 import type { PendingItemsDone, PendingItemsSessionFile, PendingItemsSessionState } from '../types'
 import { prDismissId, type SetInput, uniqueByUrl } from './parse'
@@ -47,6 +47,11 @@ export function dismissed(file: PendingItemsSessionFile, dismissId: string, now:
     dismissed: file.dismissed.includes(dismissId) ? file.dismissed : [...file.dismissed, dismissId],
     done: entry === undefined ? file.done : [...file.done.filter(d => d.id !== dismissId), entry],
   }
+}
+
+/** A choice button: as Done, but `notify` is left as it was, since the answer itself tells the model. */
+export function answered(file: PendingItemsSessionFile, id: string, now: number): PendingItemsSessionFile {
+  return withNotify(dismissed(file, id, now), file.notify ?? [])
 }
 
 /** The Undo button: un-hides a done item (or PR) and puts it back where it was. */

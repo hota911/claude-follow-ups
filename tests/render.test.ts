@@ -203,7 +203,7 @@ describe('reply', () => {
   })
 
   for (const surface of ['desktop', 'terminal'] as const) {
-    test(`a question's option button sends the quoted question and the option at once (${surface})`, async ($, on) => {
+    test(`a question's option button sends the quoted question and the option, and marks it done (${surface})`, async ($, on) => {
       const w = world(on, NO_PR, [fileOf(SELF, { items: [{ id: 'q1', kind: 'question', text: 'Merge now?', options: ['Yes', 'No'] }] })])
       await start($, w)
       const pane = await mountPane($, surface)
@@ -212,13 +212,58 @@ describe('reply', () => {
       await pane.press({ key: `answer:${SELF}:q1:1` })
       await w.clock.settle()
       expect(w.submitted).toEqual(['> Question: Merge now?\n\nNo'])
-      // The box is left alone, and the question stays listed until the model removes it.
+      // The box is left alone; the question is done, kept for Show done and Undo.
       expect(w.prompt.draft).toBe('')
+      expect(w.file(SELF)?.items).toEqual([])
+      expect(w.file(SELF)?.dismissed).toEqual(['q1'])
+      expect(await pane.find({ type: 'Button', key: `answer:${SELF}:q1:0` })).toBeUndefined()
+      await pane.press({ key: 'toggle-done' })
+      await w.clock.settle()
+      expect(await pane.find({ type: 'Text', text: 'Merge now?' })).toMatchObject({ props: { strikethrough: true } })
+      await pane.press({ key: `act:${SELF}:q1` })
+      await w.clock.settle()
       expect(w.file(SELF)?.items.map(item => item.id)).toEqual(['q1'])
       expect(await pane.find({ type: 'Button', key: `answer:${SELF}:q1:0` })).toBeDefined()
       await pane.unmount()
     })
   }
+
+  test('while the session is busy, the buttons are gone after one press, so one answer is sent', async ($, on) => {
+    const w = world(on, NO_PR, [fileOf(SELF, { items: [{ id: 'q1', kind: 'question', text: 'Merge now?', options: ['Yes', 'No'] }] })])
+    await start($, w)
+    const pane = await mountPane($)
+    // The engine holds the submit until the turn running now ends.
+    let idle = () => {}
+    w.submits.gate = new Promise<void>(resolve => { idle = resolve })
+    await pane.press({ key: `answer:${SELF}:q1:0` })
+    await w.clock.settle()
+    expect(await pane.find({ type: 'Button', key: `answer:${SELF}:q1:0` })).toBeUndefined()
+    expect(await pane.find({ type: 'Button', key: `answer:${SELF}:q1:1` })).toBeUndefined()
+    let pressedAgain = true
+    try { await pane.press({ key: `answer:${SELF}:q1:0` }) } catch { pressedAgain = false }
+    expect(pressedAgain).toBe(false)
+    idle()
+    await w.clock.settle()
+    expect(w.submitted).toEqual(['> Question: Merge now?\n\nYes'])
+    await pane.unmount()
+  })
+
+  test('a failed send puts the question back and says why', async ($, on) => {
+    const w = world(on, NO_PR, [fileOf(SELF, { items: [{ id: 'q1', kind: 'question', text: 'Merge now?', options: ['Yes', 'No'] }] })])
+    await start($, w)
+    const pane = await mountPane($)
+    w.submits.fails = true
+    await pane.press({ key: `answer:${SELF}:q1:0` })
+    await w.clock.settle()
+    expect(w.submitted).toEqual([])
+    expect(w.file(SELF)?.items.map(item => item.id)).toEqual(['q1'])
+    expect(w.file(SELF)?.dismissed).toEqual([])
+    expect(w.file(SELF)?.done).toEqual([])
+    expect(await pane.find({ type: 'Button', key: `answer:${SELF}:q1:0` })).toBeDefined()
+    // The kit reports a throwing answer as the call having none.
+    expect((await pane.find({ type: 'Text', text: /^Failed:/ }))?.text).toContain('prompt.submit')
+    await pane.unmount()
+  })
 
   test('option buttons are drawn only on this session\'s active questions', async ($, on) => {
     const w = world(on, NO_PR, [

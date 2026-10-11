@@ -47,6 +47,8 @@ export function world(on: On, gh: Gh, seed: PendingItemsSessionFile[] = [], env:
   const prompt = { draft: '', modes: [] as (string | undefined)[], readGate: Promise.resolve() }
   /** Every prompt that entered the session, in order. */
   const submitted: string[] = []
+  /** What every submit waits on first (a busy session), and whether it then fails. */
+  const submits = { gate: Promise.resolve(), fails: false }
   const clipboard = { works: true, copied: [] as string[] }
   const toasts: string[] = []
   const agents: AgentInfo[] = []
@@ -125,7 +127,9 @@ export function world(on: On, gh: Gh, seed: PendingItemsSessionFile[] = [], env:
     return { value: { ...(await answerGh(e.argv)), ...done } }
   })
   // The prompt enters as it arrived at the bottom, context included, as core answers it.
-  on('prompt.submit', ($, e) => {
+  on('prompt.submit', async ($, e) => {
+    await submits.gate
+    if (submits.fails) throw new Error('the session refused the prompt')
     submitted.push(e.text)
     return { text: e.text, ...(e.context !== undefined ? { context: e.context } : {}) }
   })
@@ -145,6 +149,7 @@ export function world(on: On, gh: Gh, seed: PendingItemsSessionFile[] = [], env:
     panesOpened,
     prompt,
     submitted,
+    submits,
     clipboard,
     toasts,
     /** The session's agents as `agent.list` answers them; a test edits their statuses in place. */
