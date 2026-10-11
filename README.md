@@ -214,9 +214,20 @@ pinned there.
 
 ### Trying a development copy
 
-To run a modified copy next to the installed version, rename the copy to `follow-ups-dev` and
-put it in the session's dev-mods folder, `~/.claude/dev-mods/<session>/follow-ups-dev/`.
-Without the rename, the installed version draws the pane. Replace `follow-ups` with
+To run a modified copy next to the installed version, run this from the checkout (any worktree
+or branch) inside the Claude Code session that should load it:
+
+```
+scripts/dev-copy.sh            # session id from $CLAUDE_CODE_SESSION_ID
+scripts/dev-copy.sh <session>  # or name the session
+```
+
+It copies the working tree's `.claude-plugin/plugin.json`, `hooks/` and `types/`, uncommitted
+edits included, into the session's dev-mods folder,
+`~/.claude/dev-mods/<session>/follow-ups-dev/` (`FOLLOW_UPS_DEV_MODS` overrides
+`~/.claude/dev-mods`), replacing the previous copy. It then renames the copy to `follow-ups-dev`,
+checks that no old name is left, runs `claude plugin validate` on it and prints its path. Without
+the rename, the installed version draws the pane. The script replaces `follow-ups` with
 `follow-ups-dev` in:
 
 - `name` in `.claude-plugin/plugin.json` (it must match the folder name).
@@ -225,8 +236,9 @@ Without the rename, the installed version draws the pane. Replace `follow-ups` w
   `requestId`, and the matcher with the tool name `mcp__follow-ups__pending_items_set`.
 - The module augmentation key in `types/index.d.ts`.
 
-Keep the session file location, so the copy reads and writes the same files. Then run
-`claude plugin validate <copy folder>`.
+It keeps the session file location, so the copy reads and writes the same files. If the
+source changed so that one of these places no longer matches, the script stops and names it;
+update the script with the source.
 
 ## License
 
