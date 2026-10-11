@@ -35,6 +35,11 @@ Claude when to call it. Each call replaces the session's whole list:
   `options`.
 - `activity`: one line on what the session is doing now, shown next to Running.
 
+A call over a limit is refused with the reason, never cut: at most 50 items; `id` 64
+characters, `text` 500, `title` 120, `owner` 60, `activity` 120, `url` 2000. `url` must be an
+`https:` URL. Control characters and terminal escape sequences are removed from the text
+(newlines and tabs are kept).
+
 Item kinds:
 
 | Kind | Meaning |
@@ -99,6 +104,11 @@ Each session keeps one JSON file, `~/.claude/follow-ups/sessions/<sessionId>.jso
 session reads all of them, so each pane shows every session. All of the following is in
 `hooks/register.tsx`.
 
+A file is read only when it passes the same checks as the tool's input, its `sessionId` equals
+its file name, and its stored PR URLs are github.com pull requests. A file that fails is never
+overwritten: loads skip it and the pane names it with the reason, and the tool refuses to store
+a list over this session's own such file. Fix or remove the file to recover.
+
 | When | What happens | Files | What the model sees |
 | --- | --- | --- | --- |
 | Session start (`session.start`) | Registers `/follow-ups` and the tool. Records the state as idle, loads all session files, looks up the branch PR and re-checks the stored PRs. Starts the reload timer | Reads `sessions/*.json`; writes its own file (created only when a PR is found) | The tool's description and schema |
@@ -150,6 +160,8 @@ sequenceDiagram
 - A PR is recorded from `gh pr create` only when its URL is in the command's output. A command
   run in the background, or one whose output is redirected, records nothing; the branch lookup
   still finds the PR of the working directory's own branch.
+- Only github.com PRs are tracked. A PR `gh` reports on another host (GitHub Enterprise) shows as
+  a failed PR check instead.
 - ↗ runs macOS's `open` through the CLI process, so it does not work where that is not
   available.
 - On the desktop, the first click on an unfocused pane only focuses it; the next click presses.
