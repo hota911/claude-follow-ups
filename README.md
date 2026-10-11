@@ -196,6 +196,8 @@ claude plugin validate .
 ```
 
 `claude plugin validate .` checks the marketplace file, the plugin manifest and the hooks.
+Both run on every pull request (`.github/workflows/ci.yml`), with the Claude Code version
+pinned there.
 
 ### Trying a development copy
 
