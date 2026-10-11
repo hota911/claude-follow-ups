@@ -5,7 +5,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderSurface } from 'claude-code'
 
 import type { PendingItem, PendingItemsLoad, PendingItemsPr, PendingItemsSessionFile, PendingItemsSessionState, PendingItemsView } from '../types'
-import { answerOf, copyTextOf, hostLinkOf, quoteOf, replyFill, withPromptBox } from './actions'
+import { answerOf, copyTextOf, holdsFill, hostLinkOf, quoteOf, replyFill, withPromptBox } from './actions'
 import { BAND_CLOSED_KEY, errorLine, PANE, PANE_TITLE, PLUGIN, SHOW_DONE_KEY, TOOL, TOOL_FULL } from './common'
 import { answered, applySet, dismissed, doneNoticeOf, type SetOutcome, undone, withNotify } from './items'
 import {
@@ -492,7 +492,7 @@ async function replyTo($: Engine, item: PendingItem): Promise<void> {
     const fill = replyFill((await $.prompt.read()).text, quoteOf(item))
     const filled = await $.prompt.fill(fill)
     if (!filled.isFilled) throw new Error('the prompt box did not take the quote')
-    if (filled.text !== fill.text) throw new Error('the prompt box changed while the quote was put in; check the draft')
+    if (!holdsFill(filled.text, fill.text)) throw new Error('the prompt box changed while the quote was put in; check the draft')
   })
 }
 
@@ -549,7 +549,7 @@ async function fillResume($: Engine, sessionId: string): Promise<void> {
     const text = `/resume ${sessionId}`
     const filled = await $.prompt.fill({ text, mode: 'replace' })
     if (!filled.isFilled) throw new Error('the prompt box did not take /resume')
-    if (filled.text !== text) throw new Error('the prompt box changed while /resume was put in; check the draft')
+    if (!holdsFill(filled.text, text)) throw new Error('the prompt box changed while /resume was put in; check the draft')
   })
 }
 
