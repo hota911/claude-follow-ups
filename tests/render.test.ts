@@ -485,7 +485,7 @@ describe('views', () => {
 
   test('a long item is one row with its full text, never cut', async ($, on) => {
     const long = `Check that ${'every wrapped line hangs under the text '.repeat(8)}end`
-    const w = world(on, NO_PR, [fileOf(SELF, { title: 'A long title '.repeat(10).trim(), items: [{ id: 'long', kind: 'unverified', text: long }] })])
+    const w = world(on, NO_PR, [fileOf(SELF, { title: 'A long title '.repeat(9).trim(), items: [{ id: 'long', kind: 'unverified', text: long }] })])
     await start($, w)
     const pane = await mountPane($, 'terminal')
     const row = await pane.find({ type: 'Box', key: `${SELF}:long` })

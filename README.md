@@ -35,6 +35,11 @@ Claude when to call it. Each call replaces the session's whole list:
   `options`.
 - `activity`: one line on what the session is doing now, shown next to Running.
 
+A call over a limit is refused with the reason, never cut: at most 50 items; `id` 64
+characters, `text` 500, `title` 120, `owner` 60, `activity` 120, `url` 2000. `url` must be an
+`https:` or `http:` URL (other schemes such as `file:` are refused). Control characters and terminal escape sequences are removed from the text
+(newlines and tabs are kept).
+
 Item kinds:
 
 | Kind | Meaning |
@@ -99,12 +104,17 @@ Each session keeps one JSON file, `~/.claude/follow-ups/sessions/<sessionId>.jso
 session reads all of them, so each pane shows every session. All of the following is in
 `hooks/register.tsx`.
 
+A file is read only when it passes the same checks as the tool's input, its `sessionId` equals
+its file name, and its stored PR URLs are github.com pull requests. A file that fails is never
+overwritten: loads skip it and the pane names it with the reason, and the tool refuses to store
+a list over this session's own such file. Fix or remove the file to recover.
+
 | When | What happens | Files | What the model sees |
 | --- | --- | --- | --- |
 | Session start (`session.start`) | Registers `/follow-ups` and the tool. Records the state as idle, loads all session files, looks up the branch PR and re-checks the stored PRs. Starts the reload timer | Reads `sessions/*.json`; writes its own file (created only when a PR is found) | The tool's description and schema |
 | Every 30 seconds | Reloads all session files and runs the archived-session cleanup (below). A reload also follows every write, a view switch and Refresh | Reads `sessions/*.json` | Nothing |
 | Prompt compose (`prompt.compose`) | Adds a fixed system prompt section: when to call the tool, the kinds, and to write in the session's language. It holds no items, so it does not change between turns. Skipped for teammates | None | The section, every turn |
-| Prompt submit (`prompt.submit`) | Takes the ids in the file's `notify` list and clears it | Reads and writes its own file | One context line beside the prompt, e.g. `[Follow-ups] The user marked these done in the pane: q1 (What is the budget?)`. It is not shown in the transcript |
+| Prompt submit (`prompt.submit`) | Takes the ids in the file's `notify` list and clears it | Reads and writes its own file | Context beside the prompt: one instruction line, then the items as data in a `<done-items>` block, e.g. `<item id="q1">What is the budget?</item>` (escaped, on one line, cut at 200 characters). It is not shown in the transcript |
 | Turn start (`turn.start`) | State Running; the previous turn's `activity` is removed | Its own file | Nothing |
 | The model calls `pending_items_set` | Replaces the title, items and activity. Ids you already marked done are dropped. The pane opens if this session's list was empty | Writes its own file (creating it) | `Stored N item(s) for "<title>".`, plus the ids kept hidden, if any |
 | Bash `gh pr create` | PR URLs in its output are looked up and added to `prs`. The Bash result is unchanged | Its own file | Nothing |
@@ -116,7 +126,7 @@ session reads all of them, so each pane shows every session. All of the followin
 | Option button | Submits the quoted question and the option as your prompt | None | That prompt |
 | ⧉ | Copies to the clipboard | None | Nothing |
 | ↗ / Resume | Runs `open claude://claude.ai/epitaxy/<hostSessionId>` / fills `/resume <sessionId>` | None | Nothing |
-| Archived-session cleanup (on every load) | For another session's file that has a Desktop id, reads the Desktop app's record; if it says `isArchived: true`, deletes the session file with `rm -f`. Its own file is never deleted | Reads `~/Library/Application Support/Claude/claude-code-sessions/<account>/<org>/<hostSessionId>.json`; deletes `sessions/<id>.json` | Nothing |
+| Archived-session cleanup (on every load) | For another session's file that has a Desktop id, reads the Desktop app's record; if it says `isArchived: true`, reads the session file again and, if it still names that Desktop session, deletes it with `rm -f`. Its own file is never deleted | Reads `~/Library/Application Support/Claude/claude-code-sessions/<account>/<org>/<hostSessionId>.json`; deletes `sessions/<id>.json` | Nothing |
 
 The Show done toggle and the band's closed state are kept in the plugin's store (`$.store`).
 
@@ -150,6 +160,8 @@ sequenceDiagram
 - A PR is recorded from `gh pr create` only when its URL is in the command's output. A command
   run in the background, or one whose output is redirected, records nothing; the branch lookup
   still finds the PR of the working directory's own branch.
+- Only github.com PRs are tracked. A PR `gh` reports on another host (GitHub Enterprise) shows as
+  a failed PR check instead.
 - ↗ runs macOS's `open` through the CLI process, so it does not work where that is not
   available.
 - On the desktop, the first click on an unfocused pane only focuses it; the next click presses.

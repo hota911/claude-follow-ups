@@ -9,10 +9,12 @@ import { answerOf, copyTextOf, hostLinkOf, quoteOf, replyFill, withPromptBox } f
 import { BAND_CLOSED_KEY, errorLine, PANE, PANE_TITLE, PLUGIN, SHOW_DONE_KEY, TOOL, TOOL_FULL } from './common'
 import { applySet, dismissed, doneNoticeOf, type SetOutcome, undone, withNotify } from './items'
 import {
+  basename,
   createdPrUrls,
   firstLine,
   hasContent,
   isArchivedRecord,
+  LIMITS,
   OPTION_MAX_LENGTH,
   OPTIONS_MAX,
   OPTIONS_MIN,
@@ -29,6 +31,7 @@ import {
   hiddenResult,
   INPUT_DESCRIPTIONS,
   inputDeny,
+  invalidFileDeny,
   storedResult,
   storeFailedDeny,
   subagentDeny,
@@ -37,7 +40,16 @@ import {
 import { bandView, paneView, type ViewElements } from './render'
 import { bandIds, focusAfter, rowsOf, type Shown } from './rows'
 import { hasActiveAgent, STATE_AFTER, stateAfterMainTurn, withState } from './state'
-import { blankFile, HOST_ID_PATTERN, hostRecordsRootOf, type OwnBase, sessionPathOf, sessionsDirOf, withFile } from './store'
+import {
+  blankFile,
+  HOST_ID_PATTERN,
+  hostRecordsRootOf,
+  InvalidSessionFileError,
+  type OwnBase,
+  sessionPathOf,
+  sessionsDirOf,
+  withFile,
+} from './store'
 
 const REFRESH_MS = 30 * 1000
 
@@ -58,18 +70,19 @@ type Engine = EngineInterface
 const INPUT_SCHEMA = {
   type: 'object',
   properties: {
-    title: { type: 'string', description: INPUT_DESCRIPTIONS.title },
-    activity: { type: 'string', description: INPUT_DESCRIPTIONS.activity },
+    title: { type: 'string', maxLength: LIMITS.title, description: INPUT_DESCRIPTIONS.title },
+    activity: { type: 'string', maxLength: LIMITS.activity, description: INPUT_DESCRIPTIONS.activity },
     items: {
       type: 'array',
+      maxItems: LIMITS.items,
       items: {
         type: 'object',
         properties: {
-          id: { type: 'string', description: INPUT_DESCRIPTIONS.id },
+          id: { type: 'string', maxLength: LIMITS.id, description: INPUT_DESCRIPTIONS.id },
           kind: { type: 'string', enum: ['question', 'user_action', 'unverified', 'next_step'] },
-          text: { type: 'string', description: INPUT_DESCRIPTIONS.text },
-          owner: { type: 'string', description: INPUT_DESCRIPTIONS.owner },
-          url: { type: 'string' },
+          text: { type: 'string', maxLength: LIMITS.text, description: INPUT_DESCRIPTIONS.text },
+          owner: { type: 'string', maxLength: LIMITS.owner, description: INPUT_DESCRIPTIONS.owner },
+          url: { type: 'string', maxLength: LIMITS.url, description: INPUT_DESCRIPTIONS.url },
           options: {
             type: 'array',
             items: { type: 'string', maxLength: OPTION_MAX_LENGTH },
@@ -155,13 +168,31 @@ async function removeFile($: Engine, path: string): Promise<void> {
   if (ran.exitCode !== 0) throw new Error(firstLine(ran.stderr) || `rm exited with ${ran.exitCode}`)
 }
 
+/**
+ * Deletes an archived session's file, read again first, inside withFile: only while it still
+ * parses and names the same Desktop session, so a file rewritten since the archive check is kept.
+ */
+async function removeArchived($: Engine, path: string, fileName: string, hostSessionId: string): Promise<void> {
+  if (!(await $.fs.exists(path))) return
+  const latest = parseSessionFile(await $.fs.read(path), fileName)
+  if ('error' in latest || latest.hostSessionId !== hostSessionId) return
+  await removeFile($, path)
+}
+
 async function fileOf($: Engine, sessionId: string): Promise<string> {
   return sessionPathOf(await sessionsDir($), sessionId)
 }
 
+/**
+ * Reads a session file at a path from sessionPathOf: undefined when there is none. One that exists
+ * but does not parse throws InvalidSessionFileError, so no caller writes a blank file over it.
+ */
 async function readSession($: Engine, path: string): Promise<PendingItemsSessionFile | undefined> {
   if (!(await $.fs.exists(path))) return undefined
-  return parseSessionFile(await $.fs.read(path))
+  const fileName = basename(path).slice(0, -'.json'.length)
+  const parsed = parseSessionFile(await $.fs.read(path), fileName)
+  if ('error' in parsed) throw new InvalidSessionFileError(fileName, parsed.error)
+  return parsed
 }
 
 /**
@@ -180,12 +211,14 @@ async function saveFile($: Engine, path: string, file: PendingItemsSessionFile):
  * a write) drops its result, so it never puts back what the change replaced; the change's own
  * load publishes. An unchanged result is not written, so it does not redraw the pane.
  * Another session's file whose Desktop session is archived is deleted instead of listed; this
- * session's own file never is.
+ * session's own file never is. A file that does not parse is skipped, left as it is, and named
+ * in `fault`.
  */
 async function loadFiles($: Engine): Promise<void> {
   const startGen = await read($, writeGen)
   const self = await read($, selfId)
   let loaded: PendingItemsLoad
+  const skipped: string[] = []
   try {
     const dir = await sessionsDir($)
     const found: PendingItemsSessionFile[] = []
@@ -195,25 +228,33 @@ async function loadFiles($: Engine): Promise<void> {
     if (await $.fs.exists(dir)) {
       for (const entry of await $.fs.list(dir)) {
         if (entry.kind !== 'file' || !entry.name.endsWith('.json')) continue
+        const fileName = entry.name.slice(0, -'.json'.length)
         const path = `${dir}/${entry.name}`
-        const parsed = parseSessionFile(await $.fs.read(path))
-        const host = parsed?.hostSessionId
-        if (parsed !== undefined && host !== undefined && self !== null
-          && parsed.sessionId !== self && entry.name !== `${self}.json`) {
+        const parsed = parseSessionFile(await $.fs.read(path), fileName)
+        if ('error' in parsed) {
+          skipped.push(new InvalidSessionFileError(fileName, parsed.error).message)
+          continue
+        }
+        const host = parsed.hostSessionId
+        if (host !== undefined && self !== null && parsed.sessionId !== self) {
           hostDirs ??= await hostRecordDirs($)
           if (await isHostArchived($, hostDirs, host)) {
-            await withFile(() => removeFile($, path))
+            await withFile(() => removeArchived($, path, fileName, host))
             continue
           }
         }
-        const file = parsed === undefined ? undefined : pruneDone(parsed, now)
-        if (file !== undefined && hasContent(file)) found.push(file)
+        const file = pruneDone(parsed, now)
+        if (hasContent(file)) found.push(file)
       }
     }
     found.sort((a, b) => b.updatedAt - a.updatedAt)
     loaded = { status: 'ok', files: found }
   } catch (err) {
     loaded = { status: 'error', message: errorLine(err) }
+  }
+  if (skipped.length > 0) {
+    const message = skipped.join('; ')
+    if ((await read($, fault)) !== message) await update($, fault, () => message)
   }
   if ((await read($, writeGen)) !== startGen) return
   const before = JSON.stringify(await read($, files))
@@ -360,7 +401,7 @@ async function recheckStoredPrs($: Engine): Promise<void> {
   if (state.status !== 'ok') return
   for (const listed of state.files) {
     if (listed.prs.length === 0) continue
-    const path = `${dir}/${listed.sessionId}.json`
+    const path = sessionPathOf(dir, listed.sessionId)
     const file = await readSession($, path)
     if (file === undefined || file.prs.length === 0) continue
     const checks = await recheckAll($, file.cwd, file.prs)
@@ -423,7 +464,7 @@ async function setItems($: Engine, input: SetInput): Promise<SetOutcome> {
 
 /**
  * Takes this session's pending done notice: the items the person marked done in a pane (any
- * session's) since the model was last told, as one line, and clears it from the file.
+ * session's) since the model was last told, and clears it from the file.
  * Undefined when there is none, so the prompt goes in unchanged.
  */
 async function takeDoneNotice($: Engine): Promise<string | undefined> {
@@ -539,7 +580,14 @@ export const register: Register = on => {
     }
     const input = parseSetInput(e as unknown as Record<string, unknown>)
     if ('error' in input) return { deny: inputDeny(TOOL_FULL, input.error) }
-    const { file, hidden } = await setItems($, input)
+    let outcome: SetOutcome
+    try {
+      outcome = await setItems($, input)
+    } catch (err) {
+      if (err instanceof InvalidSessionFileError) return { deny: invalidFileDeny(TOOL_FULL, err.message) }
+      throw err
+    }
+    const { file, hidden } = outcome
     // One line: the model already holds the list it sent; only hidden ids are news to it.
     const lines = [storedResult(file.items.length, file.title)]
     if (hidden.length > 0) {

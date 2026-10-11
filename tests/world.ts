@@ -85,9 +85,14 @@ export function world(on: On, gh: Gh, seed: PendingItemsSessionFile[] = [], env:
     return { value: { isPlaced: true } }
   })
   on('fs.exists', ($, e) => ({ value: disk.has(e.path) || [...disk.keys()].some(k => k.startsWith(`${e.path}/`)) }))
+  /** Runs once, right after the next read of its path: another writer acting between two reads. */
+  const afterRead = new Map<string, () => void>()
   on('fs.read', ($, e) => {
     const text = disk.get(e.path)
     if (text === undefined) throw new Error(`ENOENT: ${e.path}`)
+    const then = afterRead.get(e.path)
+    afterRead.delete(e.path)
+    then?.()
     return { value: text }
   })
   on('fs.write', ($, e) => {
@@ -148,10 +153,16 @@ export function world(on: On, gh: Gh, seed: PendingItemsSessionFile[] = [], env:
     putRecord: (hostSessionId: string, text: string) => {
       disk.set(`${RECORDS}/acct-1/org-1/${hostSessionId}.json`, text)
     },
+    /** Runs `then` once, right after the next read of a Desktop app session record. */
+    afterRecordRead: (hostSessionId: string, then: () => void) => {
+      afterRead.set(`${RECORDS}/acct-1/org-1/${hostSessionId}.json`, then)
+    },
     /** Puts a session file's raw text, as another (older) writer left it. */
     putFile: (id: string, text: string) => {
       disk.set(`${DIR}/${id}.json`, text)
     },
+    /** A session file's raw text on disk. */
+    raw: (id: string) => disk.get(`${DIR}/${id}.json`),
     /** A session file as written on disk, `pr` included. */
     file: (id: string) => {
       const text = disk.get(`${DIR}/${id}.json`)

@@ -8,11 +8,14 @@ const PR_FIELDS = 'number,title,url,state,isDraft'
 
 export type PrLookup = { pr: PendingItemsPr | undefined; prError: string | undefined }
 
-/** `gh pr view` for the cwd's branch, or for a known PR by its url. */
+/**
+ * `gh pr view` for the cwd's branch, or for a known PR by its url, after `--` so it is never read
+ * as a flag (stored urls are validated too; see parseSessionFile).
+ */
 export function prViewArgv(url?: string): string[] {
   return url === undefined
     ? ['gh', 'pr', 'view', '--json', PR_FIELDS]
-    : ['gh', 'pr', 'view', url, '--json', PR_FIELDS]
+    : ['gh', 'pr', 'view', '--json', PR_FIELDS, '--', url]
 }
 
 /** What one `gh pr view` run found: a PR, no PR for the branch (not an error), or its first stderr line. */

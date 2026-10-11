@@ -72,9 +72,9 @@ export function withNotify(file: PendingItemsSessionFile, ids: string[]): Pendin
 
 /**
  * The pending done notice of a file that has one: the items the person marked done since the
- * model was last told, as one line (undefined when none of them is an item still in `done`).
+ * model was last told (undefined when none of them is an item still in `done`).
  */
 export function doneNoticeOf(file: PendingItemsSessionFile, ids: string[]): string | undefined {
-  const told = file.done.flatMap(entry => 'item' in entry && ids.includes(entry.id) ? [`${entry.id} (${entry.item.text})`] : [])
+  const told = file.done.flatMap(entry => 'item' in entry && ids.includes(entry.id) ? [{ id: entry.id, text: entry.item.text }] : [])
   return told.length > 0 ? doneNotice(told) : undefined
 }
