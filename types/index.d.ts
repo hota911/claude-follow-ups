@@ -81,8 +81,13 @@ declare module 'claude-code' {
       bandScope: 'self' | 'all'
       /** Whether the pane opens on its own the next time this session's rows go from none to some. */
       paneArmed: boolean
-      /** The last failure of a background step (write, PR check), shown in the pane. */
-      fault: string | null
+      /**
+       * The last failure of a background step (write, PR check) or a press, shown in the pane. A
+       * press's step that succeeds clears one a press left.
+       */
+      fault: { message: string; source: 'press' | 'background' } | null
+      /** The session files the latest load skipped as invalid, shown in the pane while any is left. */
+      invalidFiles: string | null
       /** Bumped by every local change; a load that began before one does not overwrite it. */
       writeGen: number
       /** Whether done entries are drawn (dim, with Undo). */

@@ -81,6 +81,7 @@ export type PaneData = {
   self: string | null
   mode: PendingItemsView
   failure: string | null
+  invalidFiles: string | null
   withDone: boolean
   now: number
   isFocused: boolean
@@ -173,7 +174,7 @@ function rowView(els: ViewElements, on: RowHandlers, self: string | null, row: R
 /** The Follow-ups pane: the view tabs and actions, then this session's box, every session's, or one box per kind. */
 export function paneView(els: ViewElements, data: PaneData, on: PaneHandlers): RenderElement {
   const { Box, Text, Button } = els
-  const { state, self, mode, failure, withDone, now } = data
+  const { state, self, mode, failure, invalidFiles, withDone, now } = data
 
   // Unfocused, every Text is drawn dim so the pane reads as inactive; Buttons keep their look
   // (on desktop they are native controls).
@@ -306,6 +307,8 @@ export function paneView(els: ViewElements, data: PaneData, on: PaneHandlers): R
         </Box>
       </Box>
       {failure !== null && <Text color="error" wrap="wrap" {...fade}>Failed: {failure}</Text>}
+      {/* A step that failed on an invalid file names it as the load does: shown once. */}
+      {invalidFiles !== null && invalidFiles !== failure && <Text color="error" wrap="wrap" {...fade}>Failed: {invalidFiles}</Text>}
       {state.status === 'loading' && <Text dimColor>Loading…</Text>}
       {state.status === 'error' && <Text color="error" wrap="wrap" {...fade}>Cannot read session records: {state.message}</Text>}
       {state.status === 'ok' && mode !== 'self' && visible(all).length === 0 && <Text dimColor>Nothing pending</Text>}

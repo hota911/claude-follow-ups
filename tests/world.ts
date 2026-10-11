@@ -175,6 +175,10 @@ export function world(on: On, gh: Gh, seed: PendingItemsSessionFile[] = [], env:
     putFile: (id: string, text: string) => {
       disk.set(`${DIR}/${id}.json`, text)
     },
+    /** Removes a session file, as the person deleting it by hand. */
+    removeFile: (id: string) => {
+      disk.delete(`${DIR}/${id}.json`)
+    },
     /** A session file's raw text on disk. */
     raw: (id: string) => disk.get(`${DIR}/${id}.json`),
     /** A session file as written on disk, `pr` included. */
