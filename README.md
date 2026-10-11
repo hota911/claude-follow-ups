@@ -226,6 +226,16 @@ claude plugin validate .
 Both run on every pull request (`.github/workflows/ci.yml`), with the Claude Code version
 pinned there.
 
+Type-check locally; CI does not. The `claude-code` types are not published in a package: Claude
+Code writes them, with a `tsconfig.json`, into `.claude-plugin/types/` of a mod it has loaded. Run
+`scripts/dev-copy.sh` (below), let the session load the copy, then:
+
+```
+scripts/typecheck.sh           # session id from $CLAUDE_CODE_SESSION_ID
+```
+
+It runs `tsc` (TypeScript from `npx`) on the copy's `hooks/` and `types/`.
+
 ### Trying a development copy
 
 To run a modified copy next to the installed version, run this from the checkout (any worktree
