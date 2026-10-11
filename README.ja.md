@@ -204,6 +204,7 @@ claude plugin validate .
 ```
 
 `claude plugin validate .` は、マーケットプレイスのファイル、プラグインのマニフェスト、フックを検証する。
+どちらもプルリクエストごとに実行される（`.github/workflows/ci.yml`）。使う Claude Code のバージョンはそのファイルで固定している。
 
 ### 開発用コピーで試す
 
