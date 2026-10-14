@@ -1,5 +1,6 @@
 /**
- * Every text the model reads from this mod, in one place. Labels shown to the person stay in
+ * Every text the model reads from this mod, in one place. Texts shown to the person are not
+ * here: the pane's and band's labels are in render.tsx, the toast and the press errors in
  * register.tsx.
  *
  * Where each text reaches the model:

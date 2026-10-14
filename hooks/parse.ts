@@ -1,9 +1,19 @@
+// Validation of the tool's input and of the session files and Desktop records read from disk, and
+// the done entries' expiry. Pure: register.tsx reads and writes the files.
 import type { PendingItem, PendingItemKind, PendingItemsDone, PendingItemsPr, PendingItemsSessionFile, PendingItemsSessionState } from '../types'
+import { firstLine, isObject, stripControls } from './common'
 import { INPUT_ERRORS } from './prompts'
+import { parsePr, prDismissId, uniqueByUrl } from './prs'
 import { HOST_ID_PATTERN, SESSION_ID_PATTERN } from './store'
 
-export const KINDS: readonly PendingItemKind[] = ['question', 'user_action', 'unverified', 'next_step']
-export const STATES: readonly PendingItemsSessionState[] = ['running', 'background', 'waiting_permission', 'idle', 'interrupted', 'error', 'ended']
+// The values of the unions declared in types/index.d.ts, which must stay import-free. The checks
+// below fail the type-check when a list misses a member of its union or names something else.
+export const KINDS = ['question', 'user_action', 'unverified', 'next_step'] as const
+const STATES = ['running', 'background', 'waiting_permission', 'idle', 'interrupted', 'error', 'ended'] as const
+
+type Exactly<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
+const KINDS_MATCH_DECLARED: Exactly<(typeof KINDS)[number], PendingItemKind> = true
+const STATES_MATCH_DECLARED: Exactly<(typeof STATES)[number], PendingItemsSessionState> = true
 
 /** What changed in the stored list: items to add or replace by id, and ids to remove. */
 export type ItemChanges = { upsert: PendingItem[]; remove: string[] }
@@ -19,22 +29,8 @@ export type SetInput =
 /** The most the tool takes, and a session file may hold: items per list, characters per field. */
 export const LIMITS = { items: 50, id: 64, text: 500, title: 120, owner: 60, activity: 120, url: 2000 } as const
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
 function optionalString(value: unknown): value is string | undefined {
   return value === undefined || typeof value === 'string'
-}
-
-// Terminal escape sequences (CSI, OSC, the other two-character ones), then any control character
-// left (C0 but tab and newline, DEL, C1), so stored text can never drive the terminal it is drawn in.
-const ESCAPE_SEQUENCE = /\u001b(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007\u001b]*(?:\u0007|\u001b\\)?|[@-_])/g
-const CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g
-
-/** The text without terminal escape sequences and control characters; tab and newline are kept. */
-export function stripControls(text: string): string {
-  return text.replace(ESCAPE_SEQUENCE, '').replace(CONTROL, '')
 }
 
 // An http: or https: URL with a host, and no whitespace or control character anywhere. http: is
@@ -179,15 +175,6 @@ export function parseSetInput(input: Record<string, unknown>): SetInput | { erro
   return { title: name, items: parsed, ...(line !== undefined && line !== '' ? { activity: line } : {}) }
 }
 
-/** A stored PR as this mod writes it, its url a github.com PR's; undefined when it is not one. */
-function parsePr(value: unknown): PendingItemsPr | undefined {
-  if (!isObject(value)) return undefined
-  const { number, title, url, isDraft } = value
-  if (!Number.isInteger(number) || typeof title !== 'string' || typeof url !== 'string' || typeof isDraft !== 'boolean') return undefined
-  if (!PR_URL_EXACT.test(url)) return undefined
-  return { number: number as number, title: stripControls(title), url, isDraft }
-}
-
 function parseDone(value: unknown, index: number): PendingItemsDone | { error: string } {
   const refused = { error: `done[${index}] is not a valid done entry` }
   if (!isObject(value)) return refused
@@ -297,23 +284,6 @@ export function toDisk(file: PendingItemsSessionFile): SessionFileOnDisk {
   return first === undefined ? file : { ...file, pr: first }
 }
 
-/** The PRs in order with later copies of a url left out. */
-export function uniqueByUrl(prs: PendingItemsPr[]): PendingItemsPr[] {
-  return prs.filter((pr, index) => prs.findIndex(other => other.url === pr.url) === index)
-}
-
-// `gh pr create` as a command of the shell line, not inside a longer word.
-const GH_PR_CREATE = /(^|[\s;&|(])gh\s+pr\s+create\b/
-const PR_URL = /https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/\d+/g
-// A whole string that is one such url: the only PR url stored, or passed to gh.
-const PR_URL_EXACT = new RegExp(`^${PR_URL.source}$`)
-
-/** The PR urls a Bash command printed, when the command runs `gh pr create`; none otherwise. */
-export function createdPrUrls(command: string, stdout: string): string[] {
-  if (!GH_PR_CREATE.test(command)) return []
-  return [...new Set(stdout.match(PR_URL) ?? [])]
-}
-
 /**
  * Whether a Desktop app session record says it is archived. The format is the app's own and
  * undocumented, so text that does not parse, or lacks a literal `isArchived: true`, is not archived.
@@ -328,52 +298,15 @@ export function isArchivedRecord(text: string): boolean {
   return isObject(value) && value.isArchived === true
 }
 
-/** Older than this, a state other than 'ended' is shown as possibly stale: a crashed process never writes 'ended'. */
-export const STALE_STATE_MS = 24 * 3600 * 1000
-
 /** Done entries are kept this long so they can still be shown and undone. */
-export const DONE_TTL_MS = 7 * 24 * 3600 * 1000
+const DONE_TTL_MS = 7 * 24 * 3600 * 1000
 
 /** The file without done entries older than DONE_TTL_MS at `now`. */
 export function pruneDone(file: PendingItemsSessionFile, now: number): PendingItemsSessionFile {
   return { ...file, done: file.done.filter(entry => now - entry.doneAt < DONE_TTL_MS) }
 }
 
-// Shape of `gh pr view --json number,title,url,state,isDraft`.
-type GhPrView = { number: number; title: string; url: string; state: string; isDraft: boolean }
-
-/**
- * The PR when it is open; undefined when merged or closed. Throws on a PR this mod would not store
- * (a url outside github.com, say), so the lookup shows as failed instead of writing a file no
- * reader takes.
- */
-export function parsePrView(stdout: string): PendingItemsPr | undefined {
-  const view = JSON.parse(stdout) as GhPrView
-  if (view.state !== 'OPEN') return undefined
-  const pr = parsePr({ number: view.number, title: view.title, url: view.url, isDraft: view.isDraft })
-  if (pr === undefined) throw new Error('gh returned a PR that is not a github.com pull request')
-  return pr
-}
-
-/** gh's answer for a branch or directory that can have no PR: not an error to show. */
-export function meansNoPr(stderr: string): boolean {
-  return /no pull requests found|not a git repository/i.test(stderr)
-}
-
-export function prDismissId(pr: PendingItemsPr): string {
-  return `pr:${pr.url}`
-}
-
 /** True when the file still has something to show; pass a file already pruned of expired done entries. */
 export function hasContent(file: PendingItemsSessionFile): boolean {
   return file.items.length > 0 || file.prs.length > 0 || file.prError !== undefined || file.done.length > 0
-}
-
-/** The first non-blank line, without control characters: error lines come from gh, rm and open. */
-export function firstLine(text: string): string {
-  return stripControls(text).split('\n').find(line => line.trim() !== '')?.trim() ?? ''
-}
-
-export function basename(path: string): string {
-  return path.replace(/\/+$/, '').split('/').pop() ?? path
 }

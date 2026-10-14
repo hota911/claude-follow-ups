@@ -1,8 +1,9 @@
 // The items of a session file: what the tool's write, ✓, ↺, a choice and the done notice change in it.
 // Pure: register.tsx reads and writes the file around these.
-import type { PendingItem, PendingItemsDone, PendingItemsSessionFile, PendingItemsSessionState } from '../types'
-import { LIMITS, prDismissId, type SetInput, uniqueByUrl } from './parse'
+import type { PendingItem, PendingItemsDone, PendingItemsRecordedState, PendingItemsSessionFile } from '../types'
+import { LIMITS, type SetInput } from './parse'
 import { doneNotice, INPUT_ERRORS } from './prompts'
+import { prDismissId, uniqueByUrl } from './prs'
 import { blankFile, type OwnBase } from './store'
 
 /** The written file, the sent ids kept hidden as done, and the removed ids that were not in the list. */
@@ -18,11 +19,11 @@ export function applySet(
   stored: PendingItemsSessionFile | undefined,
   input: SetInput,
   own: OwnBase,
-  state: { state: PendingItemsSessionState; stateAt: number } | null,
+  state: PendingItemsRecordedState | null,
   now: number,
 ): SetOutcome | { error: string } {
   if ('changes' in input && input.title === undefined && stored === undefined) return { error: INPUT_ERRORS.changesWithoutFile }
-  const { activity: storedActivity, ...base } = stored ?? blankFile(own.id, own.cwd, own.branch, now)
+  const { activity: storedActivity, ...base } = stored ?? blankFile(own.id, own.fresh.cwd, own.fresh.branch, now)
   const sent = 'items' in input ? input.items : input.changes.upsert
   const hidden = sent.filter(item => base.dismissed.includes(item.id)).map(item => item.id)
   const shown = sent.filter(item => !base.dismissed.includes(item.id))

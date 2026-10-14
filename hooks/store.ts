@@ -50,9 +50,7 @@ export function withFile<T>(work: () => Promise<T>): Promise<T> {
 export type OwnBase = {
   id: string
   path: string
-  cwd: string
-  branch: string
-  /** Fields refreshed on every write of this session's file. */
+  /** Fields refreshed on every write of this session's file; `cwd` is also where gh runs. */
   fresh: Pick<PendingItemsSessionFile, 'cwd' | 'branch' | 'hostSessionId'>
 }
 

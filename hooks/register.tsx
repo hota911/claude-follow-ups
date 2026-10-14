@@ -4,33 +4,25 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderSurface } from 'claude-code'
 
-import type { PendingItem, PendingItemsLoad, PendingItemsPr, PendingItemsSessionFile, PendingItemsSessionState, PendingItemsView } from '../types'
+import type {
+  PendingItem,
+  PendingItemsLoad,
+  PendingItemsPr,
+  PendingItemsRecordedState,
+  PendingItemsSessionFile,
+  PendingItemsSessionState,
+  PendingItemsView,
+} from '../types'
 import { answerOf, copyTextOf, holdsFill, hostLinkOf, quoteOf, repliedIds, replyFill, withPromptBox } from './actions'
-import { BAND_CLOSED_KEY, errorLine, PANE, PANE_TITLE, PLUGIN, SHOW_DONE_KEY, TOOL, TOOL_FULL } from './common'
+import { BAND_CLOSED_KEY, basename, errorLine, firstLine, PANE, PANE_TITLE, PLUGIN, SHOW_DONE_KEY, TOOL, TOOL_FULL } from './common'
 import { answered, applySet, dismissed, doneNoticeOf, type SetOutcome, undone, withNotify } from './items'
-import {
-  basename,
-  createdPrUrls,
-  firstLine,
-  hasContent,
-  isArchivedRecord,
-  LIMITS,
-  OPTION_MAX_LENGTH,
-  OPTIONS_MAX,
-  OPTIONS_MIN,
-  parseSessionFile,
-  parseSetInput,
-  pruneDone,
-  type SetInput,
-  toDisk,
-} from './parse'
-import { failedLookup, lookupOf, type PrCheck, type PrLookup, prViewArgv, withPrChecks } from './prs'
+import { hasContent, isArchivedRecord, parseSessionFile, parseSetInput, pruneDone, type SetInput, toDisk } from './parse'
+import { createdPrUrls, failedLookup, lookupOf, type PrCheck, type PrLookup, prViewArgv, withPrChecks } from './prs'
 import {
   COMMAND_RESULT,
   composeText,
   currentResult,
   hiddenResult,
-  INPUT_DESCRIPTIONS,
   inputDeny,
   invalidFileDeny,
   missingResult,
@@ -41,6 +33,7 @@ import {
 } from './prompts'
 import { bandView, paneView, type ViewElements } from './render'
 import { bandIds, focusAfter, rowsOf, type Shown } from './rows'
+import { INPUT_SCHEMA } from './schema'
 import { hasActiveAgent, STATE_AFTER, stateAfterMainTurn, withState } from './state'
 import {
   blankFile,
@@ -69,49 +62,6 @@ const bandScope = atom({ plugin: 'follow-ups', key: 'bandScope' } as const, 'sel
 const paneArmed = atom({ plugin: 'follow-ups', key: 'paneArmed' } as const, true)
 
 type Engine = EngineInterface
-
-const ITEM_SCHEMA = {
-  type: 'object',
-  properties: {
-    id: { type: 'string', maxLength: LIMITS.id, description: INPUT_DESCRIPTIONS.id },
-    kind: { type: 'string', enum: ['question', 'user_action', 'unverified', 'next_step'] },
-    text: { type: 'string', maxLength: LIMITS.text, description: INPUT_DESCRIPTIONS.text },
-    owner: { type: 'string', maxLength: LIMITS.owner, description: INPUT_DESCRIPTIONS.owner },
-    url: { type: 'string', maxLength: LIMITS.url, description: INPUT_DESCRIPTIONS.url },
-    options: {
-      type: 'array',
-      items: { type: 'string', maxLength: OPTION_MAX_LENGTH },
-      minItems: OPTIONS_MIN,
-      maxItems: OPTIONS_MAX,
-      description: INPUT_DESCRIPTIONS.options,
-    },
-  },
-  required: ['id', 'kind', 'text'],
-}
-
-// Exactly one of items and changes, and title with items: parseSetInput checks both, so no field is required here.
-const INPUT_SCHEMA = {
-  type: 'object',
-  properties: {
-    title: { type: 'string', maxLength: LIMITS.title, description: INPUT_DESCRIPTIONS.title },
-    activity: { type: 'string', maxLength: LIMITS.activity, description: INPUT_DESCRIPTIONS.activity },
-    items: { type: 'array', maxItems: LIMITS.items, items: ITEM_SCHEMA, description: INPUT_DESCRIPTIONS.items },
-    changes: {
-      type: 'object',
-      properties: {
-        upsert: { type: 'array', maxItems: LIMITS.items, items: ITEM_SCHEMA, description: INPUT_DESCRIPTIONS.upsert },
-        remove: {
-          type: 'array',
-          maxItems: LIMITS.items,
-          items: { type: 'string', maxLength: LIMITS.id },
-          description: INPUT_DESCRIPTIONS.remove,
-        },
-      },
-      additionalProperties: false,
-      description: INPUT_DESCRIPTIONS.changes,
-    },
-  },
-}
 
 // Fixed text: see composeText.
 const COMPOSE_TEXT = composeText(TOOL_FULL)
@@ -185,21 +135,22 @@ async function isHostArchived($: Engine, dirs: string[], hostSessionId: string):
   return false
 }
 
-/** Deletes one session file; `$.fs` has no delete, so `rm` on the exact path. */
-async function removeFile($: Engine, path: string): Promise<void> {
-  const ran = await $.process.run(['rm', '-f', '--', path], { timeoutMs: 5000 })
-  if (ran.exitCode !== 0) throw new Error(firstLine(ran.stderr) || `rm exited with ${ran.exitCode}`)
+/** Runs a short command; a failure throws its first stderr line, or its exit code when it printed none. */
+async function runCommand($: Engine, argv: string[]): Promise<void> {
+  const ran = await $.process.run(argv, { timeoutMs: 5000 })
+  if (ran.exitCode !== 0) throw new Error(firstLine(ran.stderr) || `${argv[0]} exited with ${ran.exitCode}`)
 }
 
 /**
  * Deletes an archived session's file, read again first, inside withFile: only while it still
  * parses and names the same Desktop session, so a file rewritten since the archive check is kept.
+ * `$.fs` has no delete, so `rm` on the exact path.
  */
 async function removeArchived($: Engine, path: string, fileName: string, hostSessionId: string): Promise<void> {
   if (!(await $.fs.exists(path))) return
   const latest = parseSessionFile(await $.fs.read(path), fileName)
   if ('error' in latest || latest.hostSessionId !== hostSessionId) return
-  await removeFile($, path)
+  await runCommand($, ['rm', '-f', '--', path])
 }
 
 async function fileOf($: Engine, sessionId: string): Promise<string> {
@@ -383,14 +334,14 @@ async function ownBase($: Engine): Promise<OwnBase> {
   // A literal name: the engine lists the variables a module reads.
   const host = await $.env.get('CLAUDE_CODE_HOST_SESSION_ID')
   const fresh = { cwd, branch, ...(host !== undefined && HOST_ID_PATTERN.test(host) ? { hostSessionId: host } : {}) }
-  return { id, path, cwd, branch, fresh }
+  return { id, path, fresh }
 }
 
 /** Applies lookups to this session's file, read again first: a press during the gh calls may have changed it. */
 async function saveOwnPrChecks($: Engine, own: OwnBase, checks: PrCheck[]): Promise<void> {
   const now = await $.clock.now()
   await withFile(async () => {
-    const base = (await readSession($, own.path)) ?? blankFile(own.id, own.cwd, own.branch, now)
+    const base = (await readSession($, own.path)) ?? blankFile(own.id, own.fresh.cwd, own.fresh.branch, now)
     const next = { ...withPrChecks(base, checks), ...own.fresh, ...(await read($, ownState) ?? {}), updatedAt: now }
     await saveFile($, own.path, next)
   })
@@ -403,17 +354,17 @@ async function saveOwnPrChecks($: Engine, own: OwnBase, checks: PrCheck[]): Prom
  */
 async function checkOwnPr($: Engine): Promise<void> {
   const own = await ownBase($)
-  const branch: PrCheck = { found: await lookUpPr($, own.cwd) }
+  const branch: PrCheck = { found: await lookUpPr($, own.fresh.cwd) }
   const stored = (await readSession($, own.path))?.prs ?? []
   const others = stored.filter(pr => pr.url !== branch.found.pr?.url)
-  await saveOwnPrChecks($, own, [branch, ...(await recheckAll($, own.cwd, others))])
+  await saveOwnPrChecks($, own, [branch, ...(await recheckAll($, own.fresh.cwd, others))])
 }
 
 /** Records the PRs a `gh pr create` printed, looked up by url: they need not be the cwd's repository. */
 async function recordCreatedPrs($: Engine, urls: string[]): Promise<void> {
   const own = await ownBase($)
   const checks: PrCheck[] = []
-  for (const url of urls) checks.push({ found: await lookUpPr($, own.cwd, url) })
+  for (const url of urls) checks.push({ found: await lookUpPr($, own.fresh.cwd, url) })
   await saveOwnPrChecks($, own, checks)
 }
 
@@ -460,15 +411,21 @@ async function recordState(
   state: PendingItemsSessionState,
   { sessionId, isTurnStart = false }: { sessionId?: string; isTurnStart?: boolean } = {},
 ): Promise<void> {
-  const stateAt = await $.clock.now()
+  const recorded: PendingItemsRecordedState = { state, stateAt: await $.clock.now() }
   const id = sessionId ?? (await $.session.id())
-  if (id === (await read($, selfId))) await update($, ownState, () => ({ state, stateAt }))
+  if (id === (await read($, selfId))) await update($, ownState, () => recorded)
   const path = await fileOf($, id)
   await withFile(async () => {
     const file = await readSession($, path)
     if (file === undefined) return
-    await saveFile($, path, withState(file, state, stateAt, isTurnStart))
+    await saveFile($, path, withState(file, recorded, isTurnStart))
   })
+}
+
+/** Records this session's state, then reloads, so the pane shows it at once. */
+async function recordStateAndLoad($: Engine, state: PendingItemsSessionState, isTurnStart = false): Promise<void> {
+  await recordState($, state, { isTurnStart })
+  await loadFiles($)
 }
 
 /** The tool: replaces or changes this session's items and activity (see applySet). */
@@ -537,11 +494,18 @@ async function markReplied($: Engine, prompt: string): Promise<void> {
  */
 async function replyTo($: Engine, item: PendingItem): Promise<void> {
   await withPromptBox(async () => {
-    const fill = replyFill((await $.prompt.read()).text, quoteOf(item))
-    const filled = await $.prompt.fill(fill)
-    if (!filled.isFilled) throw new Error('the prompt box did not take the quote')
-    if (!holdsFill(filled.text, fill.text)) throw new Error('the prompt box changed while the quote was put in; check the draft')
+    await fillPromptBox($, replyFill((await $.prompt.read()).text, quoteOf(item)), 'the quote')
   })
+}
+
+/**
+ * Fills the whole prompt box, then checks it took: a box that refused the fill, or does not
+ * hold what was filled (text typed meanwhile), throws; `what` names the text in the error.
+ */
+async function fillPromptBox($: Engine, fill: { text: string; mode: 'replace' }, what: string): Promise<void> {
+  const filled = await $.prompt.fill(fill)
+  if (!filled.isFilled) throw new Error(`the prompt box did not take ${what}`)
+  if (!holdsFill(filled.text, fill.text)) throw new Error(`the prompt box changed while ${what} was put in; check the draft`)
 }
 
 /**
@@ -578,15 +542,6 @@ async function copyItem($: Engine, item: PendingItem, surface: RenderSurface): P
 }
 
 /**
- * Opens another session in the Desktop app by its deep link. A Link cannot carry it: the
- * desktop surface draws any href but https: as plain text. `open` is macOS's URL opener.
- */
-async function openHostSession($: Engine, hostSessionId: string): Promise<void> {
-  const ran = await $.process.run(['open', hostLinkOf(hostSessionId)], { timeoutMs: 5000 })
-  if (ran.exitCode !== 0) throw new Error(firstLine(ran.stderr) || `open exited with ${ran.exitCode}`)
-}
-
-/**
  * The Resume button: puts `/resume <id>` in this session's prompt box for the person to send;
  * never run here. A slash command must start the box, so a draft is refused rather than lost.
  */
@@ -594,10 +549,7 @@ async function fillResume($: Engine, sessionId: string): Promise<void> {
   await withPromptBox(async () => {
     const draft = (await $.prompt.read()).text
     if (draft.trim() !== '') throw new Error('the prompt box has a draft; clear it, then press Resume again')
-    const text = `/resume ${sessionId}`
-    const filled = await $.prompt.fill({ text, mode: 'replace' })
-    if (!filled.isFilled) throw new Error('the prompt box did not take /resume')
-    if (!holdsFill(filled.text, text)) throw new Error('the prompt box changed while /resume was put in; check the draft')
+    await fillPromptBox($, { text: `/resume ${sessionId}`, mode: 'replace' }, '/resume')
   })
 }
 
@@ -623,8 +575,7 @@ export const register: Register = on => {
     }
     $.clock.after(1, () => runStep($, async () => {
       // A resumed session's file may still say 'ended' from its last run.
-      await recordState($, 'idle')
-      await loadFiles($)
+      await recordStateAndLoad($, 'idle')
       await checkOwnPr($)
     }))
     $.clock.every(REFRESH_MS, () => runStep($, () => loadFiles($)))
@@ -643,7 +594,7 @@ export const register: Register = on => {
     if (e.agentId !== undefined) {
       return { deny: subagentDeny(TOOL_FULL) }
     }
-    const input = parseSetInput(e as unknown as Record<string, unknown>)
+    const input = parseSetInput(e)
     if ('error' in input) return { deny: inputDeny(TOOL_FULL, input.error) }
     let outcome: SetOutcome | { error: string }
     try {
@@ -685,10 +636,7 @@ export const register: Register = on => {
 
   // A subagent's run raises no turn.start, so every one is the main loop's.
   on('turn.start', async ($, e, next) => {
-    runStep($, async () => {
-      await recordState($, 'running', { isTurnStart: true })
-      await loadFiles($)
-    })
+    runStep($, () => recordStateAndLoad($, 'running', true))
     return next(e)
   })
 
@@ -696,10 +644,7 @@ export const register: Register = on => {
   on('tool.check', async ($, e, next) => {
     const verdict = await next(e)
     if (verdict.decision === 'ask' && e.agentId === undefined && e.tool_use_id !== undefined) {
-      runStep($, async () => {
-        await recordState($, 'waiting_permission')
-        await loadFiles($)
-      })
+      runStep($, () => recordStateAndLoad($, 'waiting_permission'))
     }
     return verdict
   }).catch(($, e, next) => next(e))
@@ -708,10 +653,7 @@ export const register: Register = on => {
   on('tool.call', async ($, e, next) => {
     const result = await next(e)
     if (e.agentId === undefined && (await read($, ownState))?.state === 'waiting_permission') {
-      runStep($, async () => {
-        await recordState($, 'running')
-        await loadFiles($)
-      })
+      runStep($, () => recordStateAndLoad($, 'running'))
     }
     return result
   }).catch(($, e, next) => next(e))
@@ -739,8 +681,7 @@ export const register: Register = on => {
       const agentId = e.agentId
       runStep($, async () => {
         if ((await read($, ownState))?.state !== 'background' || (await anyActiveAgent($, agentId))) return
-        await recordState($, STATE_AFTER.answer)
-        await loadFiles($)
+        await recordStateAndLoad($, STATE_AFTER.answer)
       })
     }
     return next(e)
@@ -773,7 +714,9 @@ export const register: Register = on => {
       copy: (item, surface) => press(() => copyItem($, item, surface)),
       reply: item => press(() => replyTo($, item)),
       answer: (item, option, act) => press(() => answerWith($, item, option, act)),
-      open: host => press(() => openHostSession($, host)),
+      // Another session, opened in the Desktop app by its deep link. A Link cannot carry it: the
+      // desktop surface draws any href but https: as plain text. `open` is macOS's URL opener.
+      open: host => press(() => runCommand($, ['open', hostLinkOf(host)])),
       resume: sessionId => press(() => fillResume($, sessionId)),
       // A view switch also reloads, so archived sessions' files are cleared then too.
       choose: (chosen: PendingItemsView) => press(async () => {

@@ -111,8 +111,9 @@ PR は Claude が報告するのではなく、プラグインが追跡する。
 ## 仕組み
 
 各セッションは JSON ファイルを1つ持つ（`~/.claude/follow-ups/sessions/<sessionId>.json`）。どの
-セッションも全ファイルを読むため、どの Pane にも全セッションが出る。以下はすべて
-`hooks/register.tsx` にある。
+セッションも全ファイルを読むため、どの Pane にも全セッションが出る。以下を行うフックは
+`hooks/register.tsx` にあり、フックが呼ぶ処理のうちエンジンを呼ばないものはほかのモジュールにある
+（開発の節を参照）。
 
 ファイルを読むのは、ツールの入力と同じ確認を通り、`sessionId` がファイル名と一致し、保存した PR の
 URL が github.com のプルリクエストであるときだけである。通らないファイルは上書きしない。読み込みでは
@@ -202,17 +203,21 @@ sequenceDiagram
 | `hooks/render.tsx` | Pane と帯の描画 |
 | `hooks/rows.ts` | 行のモデル（並び順、グループ、✓ 後のフォーカス先、帯が記録する id） |
 | `hooks/items.ts` | ツール、✓、↺、選択肢ボタン、完了の通知がセッションファイルをどう変えるか |
-| `hooks/prs.ts` | `gh pr view` の引数と結果の解釈、PR の確認結果の反映 |
+| `hooks/prs.ts` | `gh pr create` が出力した PR の URL、`gh pr view` の引数と結果の解釈、保存した PR の解析、PR の確認結果の反映 |
 | `hooks/state.ts` | ターンの終わり方と状態の対応 |
 | `hooks/store.ts` | セッションファイルの場所、読み書きを直列にするキュー |
 | `hooks/actions.ts` | ↩、選択肢ボタン、⧉、↗ が作るものと、送ったプロンプトがどの質問への返信か |
-| `hooks/common.ts` | プラグイン、Pane、ツールの名前 |
-| `hooks/parse.ts` | ツールの入力とファイルの解析 |
+| `hooks/common.ts` | プラグイン、Pane、ツールの名前と、モジュール共通の文字列処理 |
+| `hooks/parse.ts` | ツールの入力、セッションファイル、Desktop の記録の検査と、完了の記録の期限切れ |
+| `hooks/schema.ts` | ツールの入力スキーマ |
 | `hooks/prompts.ts` | モデルが読むすべての文言 |
 
 設計メモは `docs/design/` にある: [差分での更新](docs/design/diff-updates.md)。
 
-テストは `tests/`（`render`、`state`、`store`、`prs`）にあり、共通の準備は `tests/world.ts` に置く。
+テストは `tests/` に振る舞いごとのファイルで置く。`tool`（入力の検査と呼び出しが保存する内容）、
+`session-files`（解析できないファイル、アーカイブされた Desktop セッション）、`done`（✓、↺、
+Show done、✓ 後のフォーカス）、`done-notice`、`buttons`（↩、選択肢、↗、Resume、送った ↩ の引用、⧉）、
+`pane`（自動で開く条件、表示）、`band`、`state`、`prs` である。共通の準備は `tests/world.ts` に置く。
 リポジトリのルートで次を実行する。
 
 ```
