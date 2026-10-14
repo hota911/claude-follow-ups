@@ -225,6 +225,9 @@ sequenceDiagram
 
 ## Development
 
+Before changing what the plugin reads, writes, runs, sends or hooks, read [AGENTS.md](AGENTS.md):
+the change must stay consistent with PRIVACY.md, this README and the directory submission.
+
 The engine follows `$` only into functions declared in the same file. So every function and hook
 that calls `$` lives in `hooks/register.tsx`, and the other modules hold only code that does not.
 
