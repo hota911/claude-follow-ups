@@ -61,6 +61,9 @@ export type PendingItemsSessionFile = {
  */
 export type PendingItemsSessionState = 'running' | 'background' | 'waiting_permission' | 'idle' | 'interrupted' | 'error' | 'ended'
 
+/** A session's state with when it was recorded, in ms: the pair a session file holds as `state` and `stateAt`. */
+export type PendingItemsRecordedState = { state: PendingItemsSessionState; stateAt: number }
+
 export type PendingItemsView = 'self' | 'session' | 'kind'
 
 export type PendingItemsLoad =
@@ -76,7 +79,7 @@ declare module 'claude-code' {
       /** Kept for this session only: every session starts on 'self'. */
       view: PendingItemsView
       /** This session's latest state, put on every write of its own file. */
-      ownState: { state: PendingItemsSessionState; stateAt: number } | null
+      ownState: PendingItemsRecordedState | null
       /** Whose counts the band shows; every session starts on 'self'. */
       bandScope: 'self' | 'all'
       /** Whether the pane opens on its own the next time this session's rows go from none to some. */

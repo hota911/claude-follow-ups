@@ -4,7 +4,15 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderSurface } from 'claude-code'
 
-import type { PendingItem, PendingItemsLoad, PendingItemsPr, PendingItemsSessionFile, PendingItemsSessionState, PendingItemsView } from '../types'
+import type {
+  PendingItem,
+  PendingItemsLoad,
+  PendingItemsPr,
+  PendingItemsRecordedState,
+  PendingItemsSessionFile,
+  PendingItemsSessionState,
+  PendingItemsView,
+} from '../types'
 import { answerOf, copyTextOf, holdsFill, hostLinkOf, quoteOf, repliedIds, replyFill, withPromptBox } from './actions'
 import { BAND_CLOSED_KEY, basename, errorLine, firstLine, PANE, PANE_TITLE, PLUGIN, SHOW_DONE_KEY, TOOL, TOOL_FULL } from './common'
 import { answered, applySet, dismissed, doneNoticeOf, type SetOutcome, undone, withNotify } from './items'
@@ -326,14 +334,14 @@ async function ownBase($: Engine): Promise<OwnBase> {
   // A literal name: the engine lists the variables a module reads.
   const host = await $.env.get('CLAUDE_CODE_HOST_SESSION_ID')
   const fresh = { cwd, branch, ...(host !== undefined && HOST_ID_PATTERN.test(host) ? { hostSessionId: host } : {}) }
-  return { id, path, cwd, branch, fresh }
+  return { id, path, fresh }
 }
 
 /** Applies lookups to this session's file, read again first: a press during the gh calls may have changed it. */
 async function saveOwnPrChecks($: Engine, own: OwnBase, checks: PrCheck[]): Promise<void> {
   const now = await $.clock.now()
   await withFile(async () => {
-    const base = (await readSession($, own.path)) ?? blankFile(own.id, own.cwd, own.branch, now)
+    const base = (await readSession($, own.path)) ?? blankFile(own.id, own.fresh.cwd, own.fresh.branch, now)
     const next = { ...withPrChecks(base, checks), ...own.fresh, ...(await read($, ownState) ?? {}), updatedAt: now }
     await saveFile($, own.path, next)
   })
@@ -346,17 +354,17 @@ async function saveOwnPrChecks($: Engine, own: OwnBase, checks: PrCheck[]): Prom
  */
 async function checkOwnPr($: Engine): Promise<void> {
   const own = await ownBase($)
-  const branch: PrCheck = { found: await lookUpPr($, own.cwd) }
+  const branch: PrCheck = { found: await lookUpPr($, own.fresh.cwd) }
   const stored = (await readSession($, own.path))?.prs ?? []
   const others = stored.filter(pr => pr.url !== branch.found.pr?.url)
-  await saveOwnPrChecks($, own, [branch, ...(await recheckAll($, own.cwd, others))])
+  await saveOwnPrChecks($, own, [branch, ...(await recheckAll($, own.fresh.cwd, others))])
 }
 
 /** Records the PRs a `gh pr create` printed, looked up by url: they need not be the cwd's repository. */
 async function recordCreatedPrs($: Engine, urls: string[]): Promise<void> {
   const own = await ownBase($)
   const checks: PrCheck[] = []
-  for (const url of urls) checks.push({ found: await lookUpPr($, own.cwd, url) })
+  for (const url of urls) checks.push({ found: await lookUpPr($, own.fresh.cwd, url) })
   await saveOwnPrChecks($, own, checks)
 }
 
@@ -403,14 +411,14 @@ async function recordState(
   state: PendingItemsSessionState,
   { sessionId, isTurnStart = false }: { sessionId?: string; isTurnStart?: boolean } = {},
 ): Promise<void> {
-  const stateAt = await $.clock.now()
+  const recorded: PendingItemsRecordedState = { state, stateAt: await $.clock.now() }
   const id = sessionId ?? (await $.session.id())
-  if (id === (await read($, selfId))) await update($, ownState, () => ({ state, stateAt }))
+  if (id === (await read($, selfId))) await update($, ownState, () => recorded)
   const path = await fileOf($, id)
   await withFile(async () => {
     const file = await readSession($, path)
     if (file === undefined) return
-    await saveFile($, path, withState(file, state, stateAt, isTurnStart))
+    await saveFile($, path, withState(file, recorded, isTurnStart))
   })
 }
 
@@ -586,7 +594,7 @@ export const register: Register = on => {
     if (e.agentId !== undefined) {
       return { deny: subagentDeny(TOOL_FULL) }
     }
-    const input = parseSetInput(e as unknown as Record<string, unknown>)
+    const input = parseSetInput(e)
     if ('error' in input) return { deny: inputDeny(TOOL_FULL, input.error) }
     let outcome: SetOutcome | { error: string }
     try {

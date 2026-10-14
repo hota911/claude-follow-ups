@@ -2,7 +2,7 @@
 // end of a turn leaves, and how a state is written into the file. Pure: register.tsx records it.
 import type { AgentInfo, AgentStatus, TurnCompleteReason } from 'claude-code'
 
-import type { PendingItemsSessionFile, PendingItemsSessionState } from '../types'
+import type { PendingItemsRecordedState, PendingItemsSessionFile, PendingItemsSessionState } from '../types'
 
 // How each end of a main-loop turn leaves the session.
 export const STATE_AFTER: Record<TurnCompleteReason, PendingItemsSessionState> = {
@@ -29,7 +29,7 @@ export function stateAfterMainTurn(reason: TurnCompleteReason, agentsActive: boo
 }
 
 /** The file with its state set; `isTurnStart` also removes the activity, which described the previous turn. */
-export function withState(file: PendingItemsSessionFile, state: PendingItemsSessionState, stateAt: number, isTurnStart: boolean): PendingItemsSessionFile {
+export function withState(file: PendingItemsSessionFile, recorded: PendingItemsRecordedState, isTurnStart: boolean): PendingItemsSessionFile {
   const { activity: _activity, ...withoutActivity } = file
-  return { ...(isTurnStart ? withoutActivity : file), state, stateAt }
+  return { ...(isTurnStart ? withoutActivity : file), ...recorded }
 }

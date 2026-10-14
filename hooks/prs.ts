@@ -57,7 +57,8 @@ export function meansNoPr(stderr: string): boolean {
 
 const PR_FIELDS = 'number,title,url,state,isDraft'
 
-export type PrLookup = { pr: PendingItemsPr | undefined; prError: string | undefined }
+/** One lookup: the open PR it found (undefined when there is none), or why it failed. */
+export type PrLookup = { pr: PendingItemsPr | undefined; prError?: never } | { pr?: never; prError: string }
 
 /**
  * `gh pr view` for the cwd's branch, or for a known PR by its url, after `--` so it is never read
@@ -71,14 +72,14 @@ export function prViewArgv(url?: string): string[] {
 
 /** What one `gh pr view` run found: a PR, no PR for the branch (not an error), or its first stderr line. */
 export function lookupOf(ran: { exitCode: number; stdout: string; stderr: string }): PrLookup {
-  if (ran.exitCode === 0) return { pr: parsePrView(ran.stdout), prError: undefined }
-  if (meansNoPr(ran.stderr)) return { pr: undefined, prError: undefined }
-  return { pr: undefined, prError: firstLine(ran.stderr) || `gh exited with ${ran.exitCode}` }
+  if (ran.exitCode === 0) return { pr: parsePrView(ran.stdout) }
+  if (meansNoPr(ran.stderr)) return { pr: undefined }
+  return { prError: firstLine(ran.stderr) || `gh exited with ${ran.exitCode}` }
 }
 
 /** A `gh pr view` run that could not start. */
 export function failedLookup(err: unknown): PrLookup {
-  return { pr: undefined, prError: errorLine(err) }
+  return { prError: errorLine(err) }
 }
 
 /**
