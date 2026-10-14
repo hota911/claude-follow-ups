@@ -67,7 +67,7 @@ export function dismissed(file: PendingItemsSessionFile, dismissId: string, now:
   }
 }
 
-/** A choice button: as Done, but `notify` is left as it was, since the answer itself tells the model. */
+/** A choice button or a sent ↩ reply: as Done, but `notify` is left as it was, since the answer itself tells the model. */
 export function answered(file: PendingItemsSessionFile, id: string, now: number): PendingItemsSessionFile {
   return withNotify(dismissed(file, id, now), file.notify ?? [])
 }

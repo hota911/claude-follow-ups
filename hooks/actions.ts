@@ -1,4 +1,5 @@
-// What a row's buttons put in the prompt box (↩), on the clipboard (⧉) or open (↗). Pure:
+// What a row's buttons put in the prompt box (↩), on the clipboard (⧉) or open (↗), and which
+// questions a sent prompt replies to. Pure:
 // register.tsx makes the engine calls with these.
 import type { PendingItem, PendingItemKind } from '../types'
 
@@ -16,6 +17,16 @@ const HOST_LINK_PREFIX = 'claude://claude.ai/epitaxy/'
 /** An item quoted line by line, led by its kind. */
 export function quoteOf(item: PendingItem): string {
   return `${REPLY_KIND[item.kind]}: ${item.text}`.split('\n').map(line => `> ${line}`).join('\n')
+}
+
+/**
+ * The ids of the questions whose quote a prompt holds unchanged, on lines of its own: the
+ * questions it replies to. Other kinds are left out; a quote edited or run on into other text
+ * does not count.
+ */
+export function repliedIds(prompt: string, items: PendingItem[]): string[] {
+  const lines = `\n${prompt}\n`
+  return items.filter(item => item.kind === 'question' && lines.includes(`\n${quoteOf(item)}\n`)).map(item => item.id)
 }
 
 /** What a choice button sends: the quote ↩ would fill, then the chosen answer. */
