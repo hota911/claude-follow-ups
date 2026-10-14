@@ -215,7 +215,10 @@ that calls `$` lives in `hooks/register.tsx`, and the other modules hold only co
 
 Design notes are in `docs/design/`: [diff updates](docs/design/diff-updates.md).
 
-Tests are in `tests/` (`render`, `state`, `store`, `prs`), with shared setup in `tests/world.ts`.
+Tests are in `tests/`, one file per behaviour: `tool` (input checks and what a call stores),
+`session-files` (files that do not parse, archived Desktop sessions), `done` (✓, ↺, Show done,
+focus after ✓), `done-notice`, `buttons` (↩, choices, ↗, Resume, a sent ↩ quote, ⧉), `pane`
+(automatic open, views), `band`, `state` and `prs`. Shared setup is in `tests/world.ts`.
 Run at the repository root:
 
 ```

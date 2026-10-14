@@ -212,7 +212,10 @@ sequenceDiagram
 
 設計メモは `docs/design/` にある: [差分での更新](docs/design/diff-updates.md)。
 
-テストは `tests/`（`render`、`state`、`store`、`prs`）にあり、共通の準備は `tests/world.ts` に置く。
+テストは `tests/` に振る舞いごとのファイルで置く。`tool`（入力の検査と呼び出しが保存する内容）、
+`session-files`（解析できないファイル、アーカイブされた Desktop セッション）、`done`（✓、↺、
+Show done、✓ 後のフォーカス）、`done-notice`、`buttons`（↩、選択肢、↗、Resume、送った ↩ の引用、⧉）、
+`pane`（自動で開く条件、表示）、`band`、`state`、`prs` である。共通の準備は `tests/world.ts` に置く。
 リポジトリのルートで次を実行する。
 
 ```
