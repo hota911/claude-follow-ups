@@ -32,19 +32,23 @@ describe('session state', () => {
     expect(w.file(SELF)?.state).toBe('ended')
   })
 
-  test('a permission dialog in the main loop is Needs permission; one in a subagent is not', async ($, on) => {
+  test('a permission notification in the main loop is Needs permission; one in a subagent or another notification is not', async ($, on) => {
     const w = world(on, NO_PR, [fileOf(SELF, { items: [item] })])
-    // No settings hook decides, so the dialog is shown.
-    on('classic.PermissionRequest', () => ({}))
+    // Stands for the engine's own notification.
+    on('classic.Notification', () => ({}))
     await start($, w)
     await $.turn.start({ text: 'go', turnId: 't1' })
     await w.clock.settle()
 
-    await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'ls' }, agent_id: 'agent-1' })
+    await $.classic.Notification({ message: 'Claude needs your permission to use Bash', notification_type: 'permission_prompt', agent_id: 'agent-1' })
     await w.clock.settle()
     expect(w.file(SELF)?.state).toBe('running')
 
-    await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'ls' } })
+    await $.classic.Notification({ message: 'Claude is waiting for your input', notification_type: 'idle_prompt' })
+    await w.clock.settle()
+    expect(w.file(SELF)?.state).toBe('running')
+
+    await $.classic.Notification({ message: 'Claude needs your permission to use Bash', notification_type: 'permission_prompt' })
     await w.clock.settle()
     expect(w.file(SELF)?.state).toBe('waiting_permission')
   })

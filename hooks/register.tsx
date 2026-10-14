@@ -640,10 +640,13 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // A permission dialog is about to be shown. Observes only: the decision stays with the person
-  // (next(e), unchanged). A dialog for a subagent's call is not this session waiting.
-  on('classic.PermissionRequest', async ($, e, next) => {
-    if (e.agent_id === undefined) runStep($, () => recordStateAndLoad($, 'waiting_permission'))
+  // The notification that a permission dialog is waiting for the person. A notification, not a
+  // permission hook, so the plugin has no part in the decision. One for a subagent's call is not
+  // this session waiting.
+  on('classic.Notification', async ($, e, next) => {
+    if (e.notification_type === 'permission_prompt' && e.agent_id === undefined) {
+      runStep($, () => recordStateAndLoad($, 'waiting_permission'))
+    }
     return next(e)
   }).catch(($, e, next) => next(e))
 
