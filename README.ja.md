@@ -222,6 +222,16 @@ claude plugin validate .
 `claude plugin validate .` は、マーケットプレイスのファイル、プラグインのマニフェスト、フックを検証する。
 どちらもプルリクエストごとに実行される（`.github/workflows/ci.yml`）。使う Claude Code のバージョンはそのファイルで固定している。
 
+型チェックは手元で行い、CI では行わない。`claude-code` の型定義はパッケージとして公開されておらず、
+Claude Code が読み込んだ mod の `.claude-plugin/types/` に `tsconfig.json` とともに書き出す。
+下の `scripts/dev-copy.sh` を実行し、セッションにコピーを読み込ませてから、次を実行する。
+
+```
+scripts/typecheck.sh           # セッション ID は $CLAUDE_CODE_SESSION_ID から取る
+```
+
+コピーの `hooks/` と `types/` に対して `tsc`（TypeScript は `npx` で取得する）を実行する。
+
 ### 開発用コピーで試す
 
 変更したコピーをインストール済みの版と並べて動かすには、読み込ませたい Claude Code のセッションの中で、
