@@ -129,7 +129,7 @@ URL が github.com のプルリクエストであるときだけである。通�
 | ターン開始（`turn.start`） | 状態を Running にし、前のターンの `activity` を消す | 自分のファイル | なし |
 | モデルが `pending_items_set` を呼ぶ | タイトル、項目、activity を置き換える（`items`）か、`changes` を適用する。本人が完了にした id は落とす。このセッションの一覧が空だったら Pane を開く | 自分のファイルに書く（なければ作る） | `Stored N item(s) for "<title>".` と、隠したままの id と保存されていなかった削除対象の id（あれば）。続けて `Current: <id> (<kind>), ...` |
 | Bash の `gh pr create` | 出力にある PR の URL を調べて `prs` に加える。Bash の結果は変えない | 自分のファイル | なし |
-| 権限の確認（`tool.check` の判定が ask） | 状態を Needs permission にし、その呼び出しが終わったら Running に戻す | 自分のファイル | なし |
+| メインループの権限ダイアログ（`classic.PermissionRequest`） | 判断は人に委ねたまま状態を Needs permission にし、その呼び出しが終わったら Running に戻す | 自分のファイル | なし |
 | ターン終了（`turn.complete`） | 状態を Waiting for you、Interrupted、Error、または起動したサブエージェントが動いていれば Background task running にする。続いてブランチの PR を調べ、PR を確認し直す。そのサブエージェントの最後の1つが終わると Waiting for you にする | 自分のファイル | なし |
 | セッション終了（`session.end`） | 状態を Ended にする | 自分のファイル | なし |
 | ✓ / ↺ | 項目を `items` と `done` のあいだで移す（id は `dismissed` に入る）。PR ではなく項目への ✓ は、id を `notify` にも加える | 項目を持つセッションのファイル（別のセッションのこともある） | そのセッションのモデルが、次のプロンプト送信時に受け取る |
@@ -167,8 +167,8 @@ sequenceDiagram
 
 - セッションファイルは後から書いたほうが勝つ。2つのセッションが同じファイルを同時に書くと
   （そのセッションが一覧を更新しているあいだに ✓ を押すなど）、片方の書き込みが失われることがある。
-- Needs permission は、メインループの呼び出しの判定が `ask` のときに記録する。auto モードでは
-  ダイアログではなく分類器に回るため、短時間だけ表示されることがある。Running に戻るのは、
+- Needs permission は、メインループの呼び出しに権限ダイアログが出るとき（`PermissionRequest` フック
+  イベント）に記録する。フックは要求をそのまま次に渡す。Running に戻るのは、
   許可されたときではなく、その呼び出しが終わったときである。
 - `gh pr create` から PR を記録できるのは、URL がコマンドの出力にあるときだけである。バックグラウンドで
   実行したコマンドや、出力をリダイレクトしたコマンドからは記録しない。作業ディレクトリのブランチの
