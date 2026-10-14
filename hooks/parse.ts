@@ -9,7 +9,7 @@ import { HOST_ID_PATTERN, SESSION_ID_PATTERN } from './store'
 // The values of the unions declared in types/index.d.ts, which must stay import-free. The checks
 // below fail the type-check when a list misses a member of its union or names something else.
 export const KINDS = ['question', 'user_action', 'unverified', 'next_step'] as const
-export const STATES = ['running', 'background', 'waiting_permission', 'idle', 'interrupted', 'error', 'ended'] as const
+const STATES = ['running', 'background', 'waiting_permission', 'idle', 'interrupted', 'error', 'ended'] as const
 
 type Exactly<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
 const KINDS_MATCH_DECLARED: Exactly<(typeof KINDS)[number], PendingItemKind> = true
@@ -299,7 +299,7 @@ export function isArchivedRecord(text: string): boolean {
 }
 
 /** Done entries are kept this long so they can still be shown and undone. */
-export const DONE_TTL_MS = 7 * 24 * 3600 * 1000
+const DONE_TTL_MS = 7 * 24 * 3600 * 1000
 
 /** The file without done entries older than DONE_TTL_MS at `now`. */
 export function pruneDone(file: PendingItemsSessionFile, now: number): PendingItemsSessionFile {

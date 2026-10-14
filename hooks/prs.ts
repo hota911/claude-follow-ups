@@ -42,7 +42,7 @@ type GhPrView = { number: number; title: string; url: string; state: string; isD
  * (a url outside github.com, say), so the lookup shows as failed instead of writing a file no
  * reader takes.
  */
-export function parsePrView(stdout: string): PendingItemsPr | undefined {
+function parsePrView(stdout: string): PendingItemsPr | undefined {
   const view = JSON.parse(stdout) as GhPrView
   if (view.state !== 'OPEN') return undefined
   const pr = parsePr({ number: view.number, title: view.title, url: view.url, isDraft: view.isDraft })
@@ -51,7 +51,7 @@ export function parsePrView(stdout: string): PendingItemsPr | undefined {
 }
 
 /** gh's answer for a branch or directory that can have no PR: not an error to show. */
-export function meansNoPr(stderr: string): boolean {
+function meansNoPr(stderr: string): boolean {
   return /no pull requests found|not a git repository/i.test(stderr)
 }
 

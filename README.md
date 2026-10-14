@@ -113,8 +113,9 @@ session's PRs are checked again; a merged or closed PR is removed.
 ## How it works
 
 Each session keeps one JSON file, `~/.claude/follow-ups/sessions/<sessionId>.json`. Every
-session reads all of them, so each pane shows every session. All of the following is in
-`hooks/register.tsx`.
+session reads all of them, so each pane shows every session. The hooks that do the following are
+in `hooks/register.tsx`; the code they call that does not touch the engine is in the other modules
+(see Development).
 
 A file is read only when it passes the same checks as the tool's input, its `sessionId` equals
 its file name, and its stored PR URLs are github.com pull requests. A file that fails is never
@@ -205,12 +206,13 @@ that calls `$` lives in `hooks/register.tsx`, and the other modules hold only co
 | `hooks/render.tsx` | Drawing the pane and the band |
 | `hooks/rows.ts` | The row model: order, groups, focus after ✓, the ids the band records |
 | `hooks/items.ts` | How the tool, ✓, ↺, option buttons and the done notice change a session file |
-| `hooks/prs.ts` | `gh pr view` arguments, reading its result, applying PR checks |
+| `hooks/prs.ts` | The PR urls `gh pr create` printed, `gh pr view` arguments and result, stored PRs, applying PR checks |
 | `hooks/state.ts` | Which state each end of a turn leaves |
 | `hooks/store.ts` | Session file locations and the queue that serializes reads and writes |
 | `hooks/actions.ts` | What ↩, option buttons, ⧉ and ↗ produce, and which questions a sent prompt replies to |
-| `hooks/common.ts` | Plugin, pane and tool names |
-| `hooks/parse.ts` | Parsing tool input and files |
+| `hooks/common.ts` | Plugin, pane and tool names, and the text helpers the modules share |
+| `hooks/parse.ts` | Checking tool input, session files and Desktop records, and the expiry of done entries |
+| `hooks/schema.ts` | The tool's input schema |
 | `hooks/prompts.ts` | Every text the model reads |
 
 Design notes are in `docs/design/`: [diff updates](docs/design/diff-updates.md).
