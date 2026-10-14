@@ -8,27 +8,13 @@ import type { PendingItem, PendingItemsLoad, PendingItemsPr, PendingItemsSession
 import { answerOf, copyTextOf, holdsFill, hostLinkOf, quoteOf, repliedIds, replyFill, withPromptBox } from './actions'
 import { BAND_CLOSED_KEY, basename, errorLine, firstLine, PANE, PANE_TITLE, PLUGIN, SHOW_DONE_KEY, TOOL, TOOL_FULL } from './common'
 import { answered, applySet, dismissed, doneNoticeOf, type SetOutcome, undone, withNotify } from './items'
-import {
-  hasContent,
-  isArchivedRecord,
-  KINDS,
-  LIMITS,
-  OPTION_MAX_LENGTH,
-  OPTIONS_MAX,
-  OPTIONS_MIN,
-  parseSessionFile,
-  parseSetInput,
-  pruneDone,
-  type SetInput,
-  toDisk,
-} from './parse'
+import { hasContent, isArchivedRecord, parseSessionFile, parseSetInput, pruneDone, type SetInput, toDisk } from './parse'
 import { createdPrUrls, failedLookup, lookupOf, type PrCheck, type PrLookup, prViewArgv, withPrChecks } from './prs'
 import {
   COMMAND_RESULT,
   composeText,
   currentResult,
   hiddenResult,
-  INPUT_DESCRIPTIONS,
   inputDeny,
   invalidFileDeny,
   missingResult,
@@ -39,6 +25,7 @@ import {
 } from './prompts'
 import { bandView, paneView, type ViewElements } from './render'
 import { bandIds, focusAfter, rowsOf, type Shown } from './rows'
+import { INPUT_SCHEMA } from './schema'
 import { hasActiveAgent, STATE_AFTER, stateAfterMainTurn, withState } from './state'
 import {
   blankFile,
@@ -67,49 +54,6 @@ const bandScope = atom({ plugin: 'follow-ups', key: 'bandScope' } as const, 'sel
 const paneArmed = atom({ plugin: 'follow-ups', key: 'paneArmed' } as const, true)
 
 type Engine = EngineInterface
-
-const ITEM_SCHEMA = {
-  type: 'object',
-  properties: {
-    id: { type: 'string', maxLength: LIMITS.id, description: INPUT_DESCRIPTIONS.id },
-    kind: { type: 'string', enum: KINDS },
-    text: { type: 'string', maxLength: LIMITS.text, description: INPUT_DESCRIPTIONS.text },
-    owner: { type: 'string', maxLength: LIMITS.owner, description: INPUT_DESCRIPTIONS.owner },
-    url: { type: 'string', maxLength: LIMITS.url, description: INPUT_DESCRIPTIONS.url },
-    options: {
-      type: 'array',
-      items: { type: 'string', maxLength: OPTION_MAX_LENGTH },
-      minItems: OPTIONS_MIN,
-      maxItems: OPTIONS_MAX,
-      description: INPUT_DESCRIPTIONS.options,
-    },
-  },
-  required: ['id', 'kind', 'text'],
-}
-
-// Exactly one of items and changes, and title with items: parseSetInput checks both, so no field is required here.
-const INPUT_SCHEMA = {
-  type: 'object',
-  properties: {
-    title: { type: 'string', maxLength: LIMITS.title, description: INPUT_DESCRIPTIONS.title },
-    activity: { type: 'string', maxLength: LIMITS.activity, description: INPUT_DESCRIPTIONS.activity },
-    items: { type: 'array', maxItems: LIMITS.items, items: ITEM_SCHEMA, description: INPUT_DESCRIPTIONS.items },
-    changes: {
-      type: 'object',
-      properties: {
-        upsert: { type: 'array', maxItems: LIMITS.items, items: ITEM_SCHEMA, description: INPUT_DESCRIPTIONS.upsert },
-        remove: {
-          type: 'array',
-          maxItems: LIMITS.items,
-          items: { type: 'string', maxLength: LIMITS.id },
-          description: INPUT_DESCRIPTIONS.remove,
-        },
-      },
-      additionalProperties: false,
-      description: INPUT_DESCRIPTIONS.changes,
-    },
-  },
-}
 
 // Fixed text: see composeText.
 const COMPOSE_TEXT = composeText(TOOL_FULL)
