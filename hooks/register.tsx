@@ -185,21 +185,22 @@ async function isHostArchived($: Engine, dirs: string[], hostSessionId: string):
   return false
 }
 
-/** Deletes one session file; `$.fs` has no delete, so `rm` on the exact path. */
-async function removeFile($: Engine, path: string): Promise<void> {
-  const ran = await $.process.run(['rm', '-f', '--', path], { timeoutMs: 5000 })
-  if (ran.exitCode !== 0) throw new Error(firstLine(ran.stderr) || `rm exited with ${ran.exitCode}`)
+/** Runs a short command; a failure throws its first stderr line, or its exit code when it printed none. */
+async function runCommand($: Engine, argv: string[]): Promise<void> {
+  const ran = await $.process.run(argv, { timeoutMs: 5000 })
+  if (ran.exitCode !== 0) throw new Error(firstLine(ran.stderr) || `${argv[0]} exited with ${ran.exitCode}`)
 }
 
 /**
  * Deletes an archived session's file, read again first, inside withFile: only while it still
  * parses and names the same Desktop session, so a file rewritten since the archive check is kept.
+ * `$.fs` has no delete, so `rm` on the exact path.
  */
 async function removeArchived($: Engine, path: string, fileName: string, hostSessionId: string): Promise<void> {
   if (!(await $.fs.exists(path))) return
   const latest = parseSessionFile(await $.fs.read(path), fileName)
   if ('error' in latest || latest.hostSessionId !== hostSessionId) return
-  await removeFile($, path)
+  await runCommand($, ['rm', '-f', '--', path])
 }
 
 async function fileOf($: Engine, sessionId: string): Promise<string> {
@@ -471,6 +472,12 @@ async function recordState(
   })
 }
 
+/** Records this session's state, then reloads, so the pane shows it at once. */
+async function recordStateAndLoad($: Engine, state: PendingItemsSessionState, isTurnStart = false): Promise<void> {
+  await recordState($, state, { isTurnStart })
+  await loadFiles($)
+}
+
 /** The tool: replaces or changes this session's items and activity (see applySet). */
 async function setItems($: Engine, input: SetInput): Promise<SetOutcome | { error: string }> {
   const own = await ownBase($)
@@ -537,11 +544,18 @@ async function markReplied($: Engine, prompt: string): Promise<void> {
  */
 async function replyTo($: Engine, item: PendingItem): Promise<void> {
   await withPromptBox(async () => {
-    const fill = replyFill((await $.prompt.read()).text, quoteOf(item))
-    const filled = await $.prompt.fill(fill)
-    if (!filled.isFilled) throw new Error('the prompt box did not take the quote')
-    if (!holdsFill(filled.text, fill.text)) throw new Error('the prompt box changed while the quote was put in; check the draft')
+    await fillPromptBox($, replyFill((await $.prompt.read()).text, quoteOf(item)), 'the quote')
   })
+}
+
+/**
+ * Fills the whole prompt box, then checks it took: a box that refused the fill, or does not
+ * hold what was filled (text typed meanwhile), throws; `what` names the text in the error.
+ */
+async function fillPromptBox($: Engine, fill: { text: string; mode: 'replace' }, what: string): Promise<void> {
+  const filled = await $.prompt.fill(fill)
+  if (!filled.isFilled) throw new Error(`the prompt box did not take ${what}`)
+  if (!holdsFill(filled.text, fill.text)) throw new Error(`the prompt box changed while ${what} was put in; check the draft`)
 }
 
 /**
@@ -578,15 +592,6 @@ async function copyItem($: Engine, item: PendingItem, surface: RenderSurface): P
 }
 
 /**
- * Opens another session in the Desktop app by its deep link. A Link cannot carry it: the
- * desktop surface draws any href but https: as plain text. `open` is macOS's URL opener.
- */
-async function openHostSession($: Engine, hostSessionId: string): Promise<void> {
-  const ran = await $.process.run(['open', hostLinkOf(hostSessionId)], { timeoutMs: 5000 })
-  if (ran.exitCode !== 0) throw new Error(firstLine(ran.stderr) || `open exited with ${ran.exitCode}`)
-}
-
-/**
  * The Resume button: puts `/resume <id>` in this session's prompt box for the person to send;
  * never run here. A slash command must start the box, so a draft is refused rather than lost.
  */
@@ -594,10 +599,7 @@ async function fillResume($: Engine, sessionId: string): Promise<void> {
   await withPromptBox(async () => {
     const draft = (await $.prompt.read()).text
     if (draft.trim() !== '') throw new Error('the prompt box has a draft; clear it, then press Resume again')
-    const text = `/resume ${sessionId}`
-    const filled = await $.prompt.fill({ text, mode: 'replace' })
-    if (!filled.isFilled) throw new Error('the prompt box did not take /resume')
-    if (!holdsFill(filled.text, text)) throw new Error('the prompt box changed while /resume was put in; check the draft')
+    await fillPromptBox($, { text: `/resume ${sessionId}`, mode: 'replace' }, '/resume')
   })
 }
 
@@ -623,8 +625,7 @@ export const register: Register = on => {
     }
     $.clock.after(1, () => runStep($, async () => {
       // A resumed session's file may still say 'ended' from its last run.
-      await recordState($, 'idle')
-      await loadFiles($)
+      await recordStateAndLoad($, 'idle')
       await checkOwnPr($)
     }))
     $.clock.every(REFRESH_MS, () => runStep($, () => loadFiles($)))
@@ -685,10 +686,7 @@ export const register: Register = on => {
 
   // A subagent's run raises no turn.start, so every one is the main loop's.
   on('turn.start', async ($, e, next) => {
-    runStep($, async () => {
-      await recordState($, 'running', { isTurnStart: true })
-      await loadFiles($)
-    })
+    runStep($, () => recordStateAndLoad($, 'running', true))
     return next(e)
   })
 
@@ -696,10 +694,7 @@ export const register: Register = on => {
   on('tool.check', async ($, e, next) => {
     const verdict = await next(e)
     if (verdict.decision === 'ask' && e.agentId === undefined && e.tool_use_id !== undefined) {
-      runStep($, async () => {
-        await recordState($, 'waiting_permission')
-        await loadFiles($)
-      })
+      runStep($, () => recordStateAndLoad($, 'waiting_permission'))
     }
     return verdict
   }).catch(($, e, next) => next(e))
@@ -708,10 +703,7 @@ export const register: Register = on => {
   on('tool.call', async ($, e, next) => {
     const result = await next(e)
     if (e.agentId === undefined && (await read($, ownState))?.state === 'waiting_permission') {
-      runStep($, async () => {
-        await recordState($, 'running')
-        await loadFiles($)
-      })
+      runStep($, () => recordStateAndLoad($, 'running'))
     }
     return result
   }).catch(($, e, next) => next(e))
@@ -739,8 +731,7 @@ export const register: Register = on => {
       const agentId = e.agentId
       runStep($, async () => {
         if ((await read($, ownState))?.state !== 'background' || (await anyActiveAgent($, agentId))) return
-        await recordState($, STATE_AFTER.answer)
-        await loadFiles($)
+        await recordStateAndLoad($, STATE_AFTER.answer)
       })
     }
     return next(e)
@@ -773,7 +764,9 @@ export const register: Register = on => {
       copy: (item, surface) => press(() => copyItem($, item, surface)),
       reply: item => press(() => replyTo($, item)),
       answer: (item, option, act) => press(() => answerWith($, item, option, act)),
-      open: host => press(() => openHostSession($, host)),
+      // Another session, opened in the Desktop app by its deep link. A Link cannot carry it: the
+      // desktop surface draws any href but https: as plain text. `open` is macOS's URL opener.
+      open: host => press(() => runCommand($, ['open', hostLinkOf(host)])),
       resume: sessionId => press(() => fillResume($, sessionId)),
       // A view switch also reloads, so archived sessions' files are cleared then too.
       choose: (chosen: PendingItemsView) => press(async () => {
