@@ -1,6 +1,6 @@
 # follow-ups
 
-[English](README.md)
+[English](README.md) · [Privacy（プライバシー）](PRIVACY.md)
 
 Claude Code のプラグインである。Claude は、各セッションが本人に待っていること（質問、本人の作業、
 未検証の点、次の手順）を `pending_items_set` ツールで報告する。プラグインはそれを各セッションの

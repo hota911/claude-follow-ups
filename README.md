@@ -1,6 +1,6 @@
 # follow-ups
 
-[日本語](README.ja.md)
+[日本語](README.ja.md) · [Privacy](PRIVACY.md)
 
 A Claude Code plugin. Claude reports what each session is waiting on you for (questions, your
 own actions, unverified points and next steps) through the `pending_items_set` tool. The plugin
