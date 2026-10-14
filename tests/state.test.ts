@@ -32,6 +32,23 @@ describe('session state', () => {
     expect(w.file(SELF)?.state).toBe('ended')
   })
 
+  test('a permission dialog in the main loop is Needs permission; one in a subagent is not', async ($, on) => {
+    const w = world(on, NO_PR, [fileOf(SELF, { items: [item] })])
+    // No settings hook decides, so the dialog is shown.
+    on('classic.PermissionRequest', () => ({}))
+    await start($, w)
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    await w.clock.settle()
+
+    await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'ls' }, agent_id: 'agent-1' })
+    await w.clock.settle()
+    expect(w.file(SELF)?.state).toBe('running')
+
+    await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'ls' } })
+    await w.clock.settle()
+    expect(w.file(SELF)?.state).toBe('waiting_permission')
+  })
+
   test('a state alone does not create a file', async ($, on) => {
     const w = world(on, NO_PR)
     await start($, w)

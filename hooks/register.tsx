@@ -640,13 +640,11 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // Observes the verdict only: it is returned unchanged. An ask on a query or in a subagent's loop is not this session waiting.
-  on('tool.check', async ($, e, next) => {
-    const verdict = await next(e)
-    if (verdict.decision === 'ask' && e.agentId === undefined && e.tool_use_id !== undefined) {
-      runStep($, () => recordStateAndLoad($, 'waiting_permission'))
-    }
-    return verdict
+  // A permission dialog is about to be shown. Observes only: the decision stays with the person
+  // (next(e), unchanged). A dialog for a subagent's call is not this session waiting.
+  on('classic.PermissionRequest', async ($, e, next) => {
+    if (e.agent_id === undefined) runStep($, () => recordStateAndLoad($, 'waiting_permission'))
+    return next(e)
   }).catch(($, e, next) => next(e))
 
   // Once an asked call is settled (run or refused), the turn goes on: back to running.

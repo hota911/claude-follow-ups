@@ -131,7 +131,7 @@ a list over this session's own such file. Fix or remove the file to recover.
 | Turn start (`turn.start`) | State Running; the previous turn's `activity` is removed | Its own file | Nothing |
 | The model calls `pending_items_set` | Replaces the title, items and activity (`items`), or applies `changes` to them. Ids you already marked done are dropped. The pane opens if this session's list was empty | Writes its own file (creating it) | `Stored N item(s) for "<title>".`, plus the ids kept hidden and the removed ids not stored, if any; then `Current: <id> (<kind>), ...` |
 | Bash `gh pr create` | PR URLs in its output are looked up and added to `prs`. The Bash result is unchanged | Its own file | Nothing |
-| Permission prompt (`tool.check` returns ask) | State Needs permission; back to Running when that call finishes | Its own file | Nothing |
+| Permission dialog in the main loop (`classic.PermissionRequest`) | State Needs permission, leaving the decision to the person; back to Running when that call finishes | Its own file | Nothing |
 | Turn end (`turn.complete`) | State Waiting for you, Interrupted, Error, or Background task running while a subagent it started is active. Then the branch PR lookup and the PR re-check. When the last such subagent ends, Waiting for you | Its own file | Nothing |
 | Session end (`session.end`) | State Ended | Its own file | Nothing |
 | ✓ / ↺ | Moves the item between `items` and `done` (with its id in `dismissed`). ✓ on an item, not a PR, also adds its id to `notify` | The owning session's file, which may be another session's | That session's model, at its next prompt submit |
@@ -169,8 +169,8 @@ sequenceDiagram
 
 - Session files are last-write-wins: two sessions writing the same file at once (a ✓ pressed
   while that session updates its list) can drop one write.
-- Needs permission is recorded when the verdict for a main-loop call is `ask`. In auto mode
-  that goes to the classifier, not a dialog, so it can show briefly. It returns to Running when
+- Needs permission is recorded when a permission dialog is shown for a main-loop call (the
+  `PermissionRequest` hook event); the hook passes the request on unchanged. It returns to Running when
   the asked call finishes, not when it is approved.
 - A PR is recorded from `gh pr create` only when its URL is in the command's output. A command
   run in the background, or one whose output is redirected, records nothing; the branch lookup
@@ -184,6 +184,34 @@ sequenceDiagram
   `Click to focus` (`Click or ctrl+x tab to focus` in the terminal).
 - Text in the pane cannot be selected on the desktop, so ⧉ is the way to take an item's text
   out. It copies one code span at most.
+
+## What it reads, writes, runs and sends
+
+- **Data it sends out**: only to GitHub, through the `gh` CLI, for PR tracking. It sends the
+  URL of a PR printed by `gh pr create` or already stored, or nothing but the working directory's
+  repository and branch when it looks up the branch's PR. It sends no item text, prompt or other
+  conversation content anywhere itself; what it adds to the prompt (see How it works) reaches the
+  model with the rest of the conversation.
+- **Programs it runs**, each with a fixed command and a 5- or 30-second limit:
+  - `git rev-parse --abbrev-ref HEAD` in the session's working directory, to name the branch.
+  - `gh pr view --json <fields> [-- <url>]`, to look up the branch's PR or a stored PR.
+  - `rm -f -- <path>` on one session file under `~/.claude/follow-ups/sessions/` whose Desktop
+    session is archived (`$.fs` has no delete).
+  - `open claude://claude.ai/epitaxy/<hostSessionId>` when you press ↗, to switch the Desktop
+    app to that session (macOS only).
+- **Files it writes**: only `~/.claude/follow-ups/sessions/<sessionId>.json`, plain JSON data
+  (see How it works). No settings, instructions, hooks or other files that tools run or obey.
+- **Prompts it submits**: when you press an option of a question, it submits, as you, the
+  question's ↩ quote followed by the option you pressed. It submits nothing else, and nothing
+  without a press.
+- **Tools**: it registers its own tool, `mcp__follow-ups__pending_items_set`, and answers it. It
+  does not stand in for any other tool; the Bash and other `tool.call` hooks pass each call and
+  its result on unchanged.
+- **Commands and system prompt**: it adds the `/follow-ups` command (opens the pane) and one fixed
+  system prompt section (see How it works). It changes no other settings, instructions, hooks or
+  tool descriptions.
+- **Permission dialogs**: the `PermissionRequest` hook decides nothing. It records Needs
+  permission when a dialog is shown for a main-loop call and passes the request on unchanged.
 
 ## Dependencies
 
