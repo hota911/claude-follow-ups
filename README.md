@@ -185,6 +185,34 @@ sequenceDiagram
 - Text in the pane cannot be selected on the desktop, so ⧉ is the way to take an item's text
   out. It copies one code span at most.
 
+## What it reads, writes, runs and sends
+
+- **Data it sends out**: only to GitHub, through the `gh` CLI, for PR tracking. It sends the
+  URL of a PR printed by `gh pr create` or already stored, or nothing but the working directory's
+  repository and branch when it looks up the branch's PR. It sends no item text, prompt or other
+  conversation content anywhere itself; what it adds to the prompt (see How it works) reaches the
+  model with the rest of the conversation.
+- **Programs it runs**, each with a fixed command and a 5- or 30-second limit:
+  - `git rev-parse --abbrev-ref HEAD` in the session's working directory, to name the branch.
+  - `gh pr view --json <fields> [-- <url>]`, to look up the branch's PR or a stored PR.
+  - `rm -f -- <path>` on one session file under `~/.claude/follow-ups/sessions/` whose Desktop
+    session is archived (`$.fs` has no delete).
+  - `open claude://claude.ai/epitaxy/<hostSessionId>` when you press ↗, to switch the Desktop
+    app to that session (macOS only).
+- **Files it writes**: only `~/.claude/follow-ups/sessions/<sessionId>.json`, plain JSON data
+  (see How it works). No settings, instructions, hooks or other files that tools run or obey.
+- **Prompts it submits**: when you press an option of a question, it submits, as you, the
+  question's ↩ quote followed by the option you pressed. It submits nothing else, and nothing
+  without a press.
+- **Tools**: it registers its own tool, `mcp__follow-ups__pending_items_set`, and answers it. It
+  does not stand in for any other tool; the Bash and other `tool.call` hooks pass each call and
+  its result on unchanged.
+- **Commands and system prompt**: it adds the `/follow-ups` command (opens the pane) and one fixed
+  system prompt section (see How it works). It changes no other settings, instructions, hooks or
+  tool descriptions.
+- **Permission dialogs**: the `PermissionRequest` hook decides nothing. It records Needs
+  permission when a dialog is shown for a main-loop call and passes the request on unchanged.
+
 ## Dependencies
 
 - The function hooks plugin API of Claude Code (`hooks/hooks.json` loads `hooks/register.tsx`).
