@@ -1,8 +1,59 @@
-// The sessions' PRs: the gh command that looks one up, how its outcome reads, and how lookups
-// change a session file. Pure: register.tsx runs gh and writes the file.
+// The sessions' PRs: which urls a `gh pr create` printed, the gh command that looks one up, how
+// its outcome reads, how a stored PR parses, and how lookups change a session file. Pure:
+// register.tsx runs gh and writes the file.
 import type { PendingItemsPr, PendingItemsSessionFile } from '../types'
-import { errorLine } from './common'
-import { firstLine, meansNoPr, parsePrView, prDismissId, uniqueByUrl } from './parse'
+import { errorLine, firstLine, isObject, stripControls } from './common'
+
+// `gh pr create` as a command of the shell line, not inside a longer word.
+const GH_PR_CREATE = /(^|[\s;&|(])gh\s+pr\s+create\b/
+const PR_URL = /https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/\d+/g
+// A whole string that is one such url: the only PR url stored, or passed to gh.
+const PR_URL_EXACT = new RegExp(`^${PR_URL.source}$`)
+
+/** The PR urls a Bash command printed, when the command runs `gh pr create`; none otherwise. */
+export function createdPrUrls(command: string, stdout: string): string[] {
+  if (!GH_PR_CREATE.test(command)) return []
+  return [...new Set(stdout.match(PR_URL) ?? [])]
+}
+
+/** A stored PR as this mod writes it, its url a github.com PR's; undefined when it is not one. */
+export function parsePr(value: unknown): PendingItemsPr | undefined {
+  if (!isObject(value)) return undefined
+  const { number, title, url, isDraft } = value
+  if (!Number.isInteger(number) || typeof title !== 'string' || typeof url !== 'string' || typeof isDraft !== 'boolean') return undefined
+  if (!PR_URL_EXACT.test(url)) return undefined
+  return { number: number as number, title: stripControls(title), url, isDraft }
+}
+
+/** The PRs in order with later copies of a url left out. */
+export function uniqueByUrl(prs: PendingItemsPr[]): PendingItemsPr[] {
+  return prs.filter((pr, index) => prs.findIndex(other => other.url === pr.url) === index)
+}
+
+export function prDismissId(pr: PendingItemsPr): string {
+  return `pr:${pr.url}`
+}
+
+// Shape of `gh pr view --json number,title,url,state,isDraft`.
+type GhPrView = { number: number; title: string; url: string; state: string; isDraft: boolean }
+
+/**
+ * The PR when it is open; undefined when merged or closed. Throws on a PR this mod would not store
+ * (a url outside github.com, say), so the lookup shows as failed instead of writing a file no
+ * reader takes.
+ */
+export function parsePrView(stdout: string): PendingItemsPr | undefined {
+  const view = JSON.parse(stdout) as GhPrView
+  if (view.state !== 'OPEN') return undefined
+  const pr = parsePr({ number: view.number, title: view.title, url: view.url, isDraft: view.isDraft })
+  if (pr === undefined) throw new Error('gh returned a PR that is not a github.com pull request')
+  return pr
+}
+
+/** gh's answer for a branch or directory that can have no PR: not an error to show. */
+export function meansNoPr(stderr: string): boolean {
+  return /no pull requests found|not a git repository/i.test(stderr)
+}
 
 const PR_FIELDS = 'number,title,url,state,isDraft'
 

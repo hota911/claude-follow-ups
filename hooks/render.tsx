@@ -3,8 +3,11 @@
 import type { Color, Elements, RenderElement, RenderSurface } from 'claude-code'
 
 import type { PendingItem, PendingItemsLoad, PendingItemsSessionFile, PendingItemsSessionState, PendingItemsView } from '../types'
-import { basename, STALE_STATE_MS } from './parse'
+import { basename } from './common'
 import { actKey, activeCount, bandIds, byGroup, type Group, GROUP_ORDER, type Row, rowId, rowsOf } from './rows'
+
+/** Older than this, a state other than 'ended' is shown as possibly stale: a crashed process never writes 'ended'. */
+const STALE_STATE_MS = 24 * 3600 * 1000
 
 const DONE_LABEL = '✓'
 const UNDO_LABEL = '↺'

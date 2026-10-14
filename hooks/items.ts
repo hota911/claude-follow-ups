@@ -1,8 +1,9 @@
 // The items of a session file: what the tool's write, ✓, ↺, a choice and the done notice change in it.
 // Pure: register.tsx reads and writes the file around these.
 import type { PendingItem, PendingItemsDone, PendingItemsSessionFile, PendingItemsSessionState } from '../types'
-import { LIMITS, prDismissId, type SetInput, uniqueByUrl } from './parse'
+import { LIMITS, type SetInput } from './parse'
 import { doneNotice, INPUT_ERRORS } from './prompts'
+import { prDismissId, uniqueByUrl } from './prs'
 import { blankFile, type OwnBase } from './store'
 
 /** The written file, the sent ids kept hidden as done, and the removed ids that were not in the list. */

@@ -6,12 +6,9 @@ import type { EngineInterface, Register, RenderSurface } from 'claude-code'
 
 import type { PendingItem, PendingItemsLoad, PendingItemsPr, PendingItemsSessionFile, PendingItemsSessionState, PendingItemsView } from '../types'
 import { answerOf, copyTextOf, holdsFill, hostLinkOf, quoteOf, repliedIds, replyFill, withPromptBox } from './actions'
-import { BAND_CLOSED_KEY, errorLine, PANE, PANE_TITLE, PLUGIN, SHOW_DONE_KEY, TOOL, TOOL_FULL } from './common'
+import { BAND_CLOSED_KEY, basename, errorLine, firstLine, PANE, PANE_TITLE, PLUGIN, SHOW_DONE_KEY, TOOL, TOOL_FULL } from './common'
 import { answered, applySet, dismissed, doneNoticeOf, type SetOutcome, undone, withNotify } from './items'
 import {
-  basename,
-  createdPrUrls,
-  firstLine,
   hasContent,
   isArchivedRecord,
   KINDS,
@@ -25,7 +22,7 @@ import {
   type SetInput,
   toDisk,
 } from './parse'
-import { failedLookup, lookupOf, type PrCheck, type PrLookup, prViewArgv, withPrChecks } from './prs'
+import { createdPrUrls, failedLookup, lookupOf, type PrCheck, type PrLookup, prViewArgv, withPrChecks } from './prs'
 import {
   COMMAND_RESULT,
   composeText,

@@ -1,7 +1,7 @@
 // The pane's and band's row model: which rows a session file has, in which order they are drawn.
 // Pure: no engine calls, so the store, the renders and the tests share it.
 import type { PendingItem, PendingItemKind, PendingItemsPr, PendingItemsSessionFile, PendingItemsView } from '../types'
-import { prDismissId } from './parse'
+import { prDismissId } from './prs'
 
 // Row order of the kind view and the band; 'pr' is one of the session's open PRs.
 export type Group = PendingItemKind | 'pr'
