@@ -14,6 +14,7 @@ import {
   firstLine,
   hasContent,
   isArchivedRecord,
+  KINDS,
   LIMITS,
   OPTION_MAX_LENGTH,
   OPTIONS_MAX,
@@ -74,7 +75,7 @@ const ITEM_SCHEMA = {
   type: 'object',
   properties: {
     id: { type: 'string', maxLength: LIMITS.id, description: INPUT_DESCRIPTIONS.id },
-    kind: { type: 'string', enum: ['question', 'user_action', 'unverified', 'next_step'] },
+    kind: { type: 'string', enum: KINDS },
     text: { type: 'string', maxLength: LIMITS.text, description: INPUT_DESCRIPTIONS.text },
     owner: { type: 'string', maxLength: LIMITS.owner, description: INPUT_DESCRIPTIONS.owner },
     url: { type: 'string', maxLength: LIMITS.url, description: INPUT_DESCRIPTIONS.url },

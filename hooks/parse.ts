@@ -2,8 +2,14 @@ import type { PendingItem, PendingItemKind, PendingItemsDone, PendingItemsPr, Pe
 import { INPUT_ERRORS } from './prompts'
 import { HOST_ID_PATTERN, SESSION_ID_PATTERN } from './store'
 
-export const KINDS: readonly PendingItemKind[] = ['question', 'user_action', 'unverified', 'next_step']
-export const STATES: readonly PendingItemsSessionState[] = ['running', 'background', 'waiting_permission', 'idle', 'interrupted', 'error', 'ended']
+// The values of the unions declared in types/index.d.ts, which must stay import-free. The checks
+// below fail the type-check when a list misses a member of its union or names something else.
+export const KINDS = ['question', 'user_action', 'unverified', 'next_step'] as const
+export const STATES = ['running', 'background', 'waiting_permission', 'idle', 'interrupted', 'error', 'ended'] as const
+
+type Exactly<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
+const KINDS_MATCH_DECLARED: Exactly<(typeof KINDS)[number], PendingItemKind> = true
+const STATES_MATCH_DECLARED: Exactly<(typeof STATES)[number], PendingItemsSessionState> = true
 
 /** What changed in the stored list: items to add or replace by id, and ids to remove. */
 export type ItemChanges = { upsert: PendingItem[]; remove: string[] }
